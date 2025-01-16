@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "jrl2"
+version = "0.1.0"
+description = "Jeremy's Robotics Library, v2"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "hpp-fcl>=2.4.4",
+    "ruff>=0.9.2",
+    "torch>=2.5.1",
+    "tqdm>=4.67.1",
+]
