@@ -9,7 +9,7 @@ This is an updated version of [Jrl](https://github.com/jstmn) with the following
   2. For the second, joint groups will need to be created ahead of time and saved to the class. This is the same as how MoveIt! works - there are predefined planning groups, you use one per planning query. 
 
  I think the first approach - everything requires a base and target frame is more elegant and intuitive. I'm not aware of any clear downsides to that approach. A default base and end effector frame should probably be set.
-* A new visualization library will be used. Options include [Pybullet](Pybullet), [RoboMeshCat/Meshcat](https://github.com/petrikvladimir/RoboMeshCat), [scikit-robot](https://github.com/iory/scikit-robot). Alternatively it would be a fun exercise to write my own or extend a current one like [kiss3d](kiss3d). This will remove the klampt dep.
+* A new visualization library will be used. Options include [trimesh](https://github.com/mikedh/trimesh), [Pybullet](Pybullet), [RoboMeshCat/Meshcat](https://github.com/petrikvladimir/RoboMeshCat), [scikit-robot](https://github.com/iory/scikit-robot). Alternatively it would be a fun exercise to write my own or extend a current one like [kiss3d](kiss3d). This will remove the klampt dep.
 
 
 
