@@ -15,5 +15,6 @@ dependencies = [
    "torch>=2.5.1",
    "tqdm>=4.67.1",
    "trimesh>=4.8.0",
+   "viser>=1.0.6",
    "yourdfpy>=0.0.58",
 ]
