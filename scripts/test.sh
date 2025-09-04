@@ -1,3 +1,3 @@
 #!/bin/bash
 
-uv run pytest
+uv run pytest --capture=no

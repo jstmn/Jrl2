@@ -1,6 +1,7 @@
 import trimesh
 import torch
 from trimesh.primitives import Sphere, Capsule, Box
+from trimesh.collision import scene_to_collision
 import random
 from abc import ABC, abstractmethod
 from jrl2.robot import Robot
@@ -42,7 +43,9 @@ class SingleEnvironmentScene(Scene):
         self._spheres_hash = get_random_hex()
         self._capsules_hash = get_random_hex()
         self._boxes_hash = get_random_hex()
-        self._trimesh_collision_manager = trimesh.Scene()
+        self._trimesh_collision_manager, self._trimesh_collision_nodes = scene_to_collision(
+            self._robot._yourdfpy_model.collision_scene
+        )
         self._scene_hash = self._sum_hash
 
     def _delete_scene(self):
@@ -59,18 +62,48 @@ class SingleEnvironmentScene(Scene):
         for i in range(len(self._boxes)):
             self._trimesh_collision_manager.remove_object(f"box_{i}")
 
+    # fcl.fcl.CollisionObject:
+    # ['getNodeType', 'getObjectType', 'getQuatRotation', 'getRotation', 'getTransform', 'getTranslation', 'isFree', 'isOccupied', 'isUncertain', 'setQuatRotation', 'setRotation', 'setTransform', 'setTranslation']
+
+    #
+
     def _update_scene(self):
         if self._sum_hash != self._scene_hash:
-            self._delete_scene()
-            self._trimesh_collision_manager.scene_to_collision(self._robot._yourdfpy_model.collision_scene)
+            assert self._robot._yourdfpy_model.collision_scene is not None
+            print(self._robot._yourdfpy_model.collision_scene)
+            # self._trimesh_collision_nodes:  {'node': <fcl.fcl.CollisionObject object>, 'node_1': <fcl.fcl.CollisionObject object>}
+            self._trimesh_collision_manager, self._trimesh_collision_nodes = scene_to_collision(
+                self._robot._yourdfpy_model.collision_scene
+            )
+            # scene_to_collision returns:
+            #   1. manager (CollisionManager) – CollisionManager for objects in scene
+            #   2. objects ({node name: CollisionObject}) – Collision objects for nodes in scene
             self._scene_hash = self._sum_hash
 
-        for i in range(len(self._spheres)):
-            self._trimesh_collision_manager.add_object(self._spheres[i], name=f"sphere_{i}")
-        for i in range(len(self._capsules)):
-            self._trimesh_collision_manager.add_object(self._capsules[i], name=f"capsule_{i}")
-        for i in range(len(self._boxes)):
-            self._trimesh_collision_manager.add_object(self._boxes[i], name=f"box_{i}")
+            print(f"self._trimesh_collision_manager: {self._trimesh_collision_manager}")
+
+            assert len(self._spheres) > 0
+            for i in range(len(self._spheres)):
+                self._trimesh_collision_manager.add_object(
+                    mesh=self._spheres[i], name=f"sphere_{i}", transform=self._spheres[i].transform
+                )
+
+            for i in range(len(self._capsules)):
+                self._trimesh_collision_manager.add_object(
+                    mesh=self._capsules[i], name=f"capsule_{i}", transform=self._capsules[i].transform
+                )
+
+            for i in range(len(self._boxes)):
+                self._trimesh_collision_manager.add_object(
+                    mesh=self._boxes[i], name=f"box_{i}", transform=self._boxes[i].transform
+                )
+
+            print()
+            print("self._trimesh_collision_nodes: ", self._trimesh_collision_nodes)
+            for collision_node in self._trimesh_collision_nodes.values():
+                print("collision_node: ", collision_node)
+                print(dir(collision_node))
+            print()
 
     @property
     def _sum_hash(self) -> str:
@@ -89,6 +122,7 @@ class SingleEnvironmentScene(Scene):
         ), "SingleEnvironmentScene only supports single spheres, use BatchedEnvironmentScene for batched operations"
         self._spheres_hash = get_random_hex()
         self._spheres.append(Sphere(radius=radius, center=center, mutable=False))
+        assert len(self._spheres) > 0
 
     def add_capsule(self, start: torch.Tensor, end: torch.Tensor, radius: float | torch.Tensor, sections: int = 32):
         """
@@ -129,8 +163,13 @@ class SingleEnvironmentScene(Scene):
     def find_robot_environment_collisions(
         self, robot_q: torch.Tensor
     ) -> list[tuple[trimesh.primitives.Primitive, trimesh.primitives.Primitive]]:
+        assert len(self._spheres) > 0
         self._update_scene()
-        return self._trimesh_collision_manager.in_collision_internal(return_names=True, return_data=True)
+        is_contact, names = self._trimesh_collision_manager.in_collision_internal(return_names=True, return_data=False)
+        print()
+        print("find_robot_environment_collisions()")
+        print(f"names: {names}")
+        return is_contact
 
 
 class BatchedEnvironmentScene(Scene):
