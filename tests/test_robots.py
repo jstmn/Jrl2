@@ -1,12 +1,14 @@
 import pytest
 
-from jrl2.robots import Panda
+from jrl2.robots import ALL_ROBOTS
 
 
 @pytest.fixture
-def panda_robot():
-    return Panda()
+def robots_classes():
+    return ALL_ROBOTS
 
 
-def test_create_robot(panda_robot: Panda):
-    assert panda_robot is not None
+def test_create_robot(robots_classes: list):
+    for robot_class in robots_classes:
+        robot = robot_class()
+        assert robot is not None

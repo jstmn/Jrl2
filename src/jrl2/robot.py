@@ -4,6 +4,8 @@ from yourdfpy import Link, Joint
 from robot_descriptions.loaders.yourdfpy import load_robot_description
 import numpy as np
 from scipy.spatial.transform import Rotation
+import viser
+
 
 ACTUATED_JOINT_TYPES = ["revolute", "prismatic", "continuous"]
 
@@ -68,6 +70,21 @@ def _get_successor_links(urdfpy_robot: YourdfpyRobot) -> dict:
 
     for joint in urdfpy_robot.joints:
         result[joint.parent].append((links_by_name[joint.parent], joint, links_by_name[joint.child]))
+        assert isinstance(
+            result[joint.parent], list
+        ), f"Expected list for {joint.parent}, got {type(result[joint.parent])}"
+        assert isinstance(
+            result[joint.parent][0], tuple
+        ), f"Expected tuple for {joint.parent} first element, got {type(result[joint.parent][0])}"
+        assert isinstance(
+            result[joint.parent][0][0], Link
+        ), f"Expected Link for {joint.parent} first element first element, got {type(result[joint.parent][0][0])}"
+        assert isinstance(
+            result[joint.parent][0][1], Joint
+        ), f"Expected Joint for {joint.parent} first element second element, got {type(result[joint.parent][0][1])}"
+        assert isinstance(
+            result[joint.parent][0][2], Link
+        ), f"Expected Link for {joint.parent} first element third element, got {type(result[joint.parent][0][2])}"
     return result
 
 
@@ -98,17 +115,34 @@ class Robot:
         self._fk_cache_q: NP_Q_TYPE | None = None
 
     @property
+    def actuated_joints(self) -> list[Joint]:
+        return [joint for joint in self._urdfpy_robot.joints if joint.type in ACTUATED_JOINT_TYPES]
+
+    @property
+    def actuated_joint_names(self) -> list[str]:
+        return [joint.name for joint in self.actuated_joints]
+
+    @property
+    def link_names(self) -> list[str]:
+        return list(self._links_by_name.keys())
+
+    @property
     def num_actuators(self) -> int:
-        return len([joint for joint in self._urdfpy_robot.joints if joint.type in ACTUATED_JOINT_TYPES])
+        return len(self.actuated_joints)
 
     def get_all_link_poses_non_batched(
-        self, q_dict_non_batched: NP_Q_DICT_TYPE, root_link_pose: NP_SE3_TYPE = np.eye(4)
+        self, q_dict: NP_Q_DICT_TYPE, root_link_pose: NP_SE3_TYPE = np.eye(4)
     ) -> NP_SE3_TYPE:
         """
         Get the poses of all links in the robot.
         """
-        assert len(q_dict_non_batched) == self.num_actuators
+        assert len(q_dict) == self.num_actuators
+        assert set(q_dict.keys()) == set(self.actuated_joint_names)
         poses = {name: None for name in self._links_by_name.keys()}
+        q_dict_full = q_dict.copy()
+        q_dict_full.update(
+            {joint.name: 0.0 for joint in self._urdfpy_robot.joints if joint.type not in ACTUATED_JOINT_TYPES}
+        )
 
         #
         root_link = self._links_by_name[self._yourdfpy_model.base_link]
@@ -121,11 +155,11 @@ class Robot:
         while len(search_queue) > 0:
             current_link, joint, child_link = search_queue.pop(0)
 
-            # neither link nor joint are hashable, so use the link name instead
+            # Compute the transformation for this joint
             if (current_link.name, joint.name) in self._fk_cache_non_batched:
                 link_T_successor = self._fk_cache_non_batched[(current_link.name, joint.name)]
             else:
-                link_T_successor = _fk_step_non_batched(joint, q_dict_non_batched[joint.name])
+                link_T_successor = _fk_step_non_batched(joint, q_dict_full[joint.name])
                 self._fk_cache_non_batched[(current_link.name, joint.name)] = link_T_successor
 
             poses[child_link.name] = poses[current_link.name] @ link_T_successor
@@ -134,7 +168,30 @@ class Robot:
                 assert child_link_repeated == child_link, f"Child link repeated: {child_link_repeated} != {child_link}"
                 search_queue.append((child_link_repeated, next_joint, next_child_link))
 
+        # Verify the output
+        for link_name, pose in poses.items():
+            assert pose is not None, f"Pose is None for link {link_name}"
+            assert isinstance(pose, np.ndarray), f"Pose is not a numpy array for link {link_name}"
+            assert pose.shape == (4, 4), f"Pose has shape {pose.shape} for link {link_name}"
+
         return poses
+
+    def visualize(self, q_dict: NP_Q_DICT_TYPE):
+        server = viser.ViserServer()
+        server.scene.add_icosphere(
+            name="/hello_sphere",
+            radius=0.5,
+            color=(255, 0, 0),  # Red
+            position=(0.0, 0.0, 0.0),
+        )
+
+        print("Open your browser to http://localhost:8080")
+        print("Press Ctrl+C to exit")
+
+        while True:
+            import time
+
+            time.sleep(10.0)
 
     def __str__(self):
         return f"Robot('{self._name}')"

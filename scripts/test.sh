@@ -1,3 +1,3 @@
 #!/bin/bash
 
-uv run pytest --capture=no
+uv run pytest -W "ignore::DeprecationWarning" -W "ignore::UserWarning" --capture=no
