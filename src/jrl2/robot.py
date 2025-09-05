@@ -1,3 +1,6 @@
+from importlib import import_module  # type: ignore
+from pathlib import Path
+
 from yourdfpy import Robot as YourdfpyRobot
 from yourdfpy import URDF as YourdfpyURDF
 from yourdfpy import Link, Joint
@@ -5,6 +8,7 @@ from robot_descriptions.loaders.yourdfpy import load_robot_description
 import numpy as np
 from scipy.spatial.transform import Rotation
 import viser
+import trimesh
 
 
 ACTUATED_JOINT_TYPES = ["revolute", "prismatic", "continuous"]
@@ -91,26 +95,45 @@ def _get_successor_links(urdfpy_robot: YourdfpyRobot) -> dict:
 class Robot:
     def __init__(self, name: str, yourdfpy_robot: YourdfpyRobot | None = None):
         if yourdfpy_robot is None:
+            assert "_description" in name, f"Name {name} should contain _description"
             self._name = name.replace("_description", "")
             self._yourdfpy_model: YourdfpyURDF = load_robot_description(name, build_collision_scene_graph=True)
             self._urdfpy_robot: YourdfpyRobot = self._yourdfpy_model.robot
+            module = import_module(f"robot_descriptions.{name}")
+            self._urdf_filepath = Path(module.URDF_PATH)
+            self._robot_description_dir = Path(module.PACKAGE_PATH)
+            # URDF_PATH='/home/jstm/.cache/robot_descriptions/example-robot-data/robots/panda_description/urdf/panda.urdf'
+            # PACKAGE_PATH='/home/jstm/.cache/robot_descriptions/example-robot-data/robots/panda_description'
+            # REPOSITORY_PATH='/home/jstm/.cache/robot_descriptions/example-robot-data'
+            self._repository_path = Path(module.REPOSITORY_PATH)
+            assert self._urdf_filepath.exists(), f"URDF file {self._urdf_filepath} does not exist"
+            assert (
+                self._robot_description_dir.exists()
+            ), f"Robot description directory {self._robot_description_dir} does not exist"
+            assert self._repository_path.exists(), f"Repository path {self._repository_path} does not exist"
+            print()
+            print(f"  self._urdf_filepath:         {self._urdf_filepath}")
+            print(f"  self._robot_description_dir: {self._robot_description_dir}")
+            print(f"  self._repository_path:       {self._repository_path}")
+            print()
+
         else:
             self._name = name.replace("_description", "")
             self._urdfpy_robot = yourdfpy_robot
             self._yourdfpy_model = YourdfpyURDF(robot=yourdfpy_robot, build_collision_scene_graph=True)
+
         assert isinstance(
             self._yourdfpy_model, YourdfpyURDF
         ), f"Expected YourdfpyURDF, got {type(self._yourdfpy_model)}"
         assert isinstance(self._urdfpy_robot, YourdfpyRobot), f"Expected YourdfpyRobot, got {type(self._urdfpy_robot)}"
 
-        #
+        # Store links and joints by name for easy access
         self._links_by_name: dict[str, Link] = {link.name: link for link in self._urdfpy_robot.links}
         self._joints_by_name: dict[str, Joint] = {joint.name: joint for joint in self._urdfpy_robot.joints}
         # self._successor_links maps a Link to a [(Link[parent], Joint, Link[child]), ...] tuple for every link.
         self._successor_links: dict[str, list[tuple[Link, Joint, Link]]] = _get_successor_links(self._urdfpy_robot)
-        #
 
-        #
+        # FK cache
         self._fk_cache_non_batched: dict[tuple[str, str], NP_SE3_TYPE] = {}
         self._fk_cache_q: NP_Q_TYPE | None = None
 
@@ -125,6 +148,10 @@ class Robot:
     @property
     def link_names(self) -> list[str]:
         return list(self._links_by_name.keys())
+
+    @property
+    def links(self) -> list[Link]:
+        return list(self._links_by_name.values())
 
     @property
     def num_actuators(self) -> int:
@@ -175,6 +202,57 @@ class Robot:
             assert pose.shape == (4, 4), f"Pose has shape {pose.shape} for link {link_name}"
 
         return poses
+
+    def get_all_link_mesh_poses_non_batched(
+        self, q_dict: NP_Q_DICT_TYPE, use_visual: bool
+    ) -> dict[str, list[tuple[trimesh.Trimesh, NP_SE3_TYPE]]]:
+        """
+        Get the poses of all links in the robot.
+        """
+        link_poses = self.get_all_link_poses_non_batched(q_dict)
+        link_meshes = {}
+        for link_name, link_pose in link_poses.items():
+
+            # Setup variables
+            link_meshes[link_name] = []
+            link = self._links_by_name[link_name]
+
+            # Get the mesh
+            visual_or_collision = link.visuals if use_visual else link.collisions
+            for i in range(len(visual_or_collision)):
+                link_T_mesh = visual_or_collision[i].origin
+                geom = visual_or_collision[i].geometry  # May be one of the following:
+                # class Geometry:
+                #     box: Optional[Box] = None
+                #     cylinder: Optional[Cylinder] = None
+                #     sphere: Optional[Sphere] = None
+                #     mesh: Optional[Mesh] = None
+
+                if link_T_mesh is None:
+                    link_T_mesh = np.eye(4)
+                mesh_pose = link_pose @ link_T_mesh
+
+                if geom.mesh is not None:
+                    new_filename = self._yourdfpy_model._filename_handler(fname=geom.mesh.filename)
+                    assert Path(new_filename).exists(), f"File {new_filename} does not exist"
+                    trimesh_obj = trimesh.load(
+                        new_filename,
+                        ignore_broken=True,
+                        force="mesh",
+                        skip_materials=True,
+                    )
+                elif geom.box is not None:
+                    trimesh_obj = trimesh.primitives.Box(geom.box.size)
+                elif geom.cylinder is not None:
+                    trimesh_obj = trimesh.primitives.Cylinder(geom.cylinder.radius, geom.cylinder.length)
+                elif geom.sphere is not None:
+                    trimesh_obj = trimesh.primitives.Sphere(geom.sphere.radius)
+                else:
+                    raise ValueError(f"Link {link_name} has an unsupported geometry. Geometry: {geom}")
+
+                link_meshes[link_name].append((trimesh_obj, mesh_pose))
+
+        return link_meshes
 
     def visualize(self, q_dict: NP_Q_DICT_TYPE):
         server = viser.ViserServer()
