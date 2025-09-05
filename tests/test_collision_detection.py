@@ -3,6 +3,7 @@ import numpy as np
 
 from jrl2.robots import get_robot_by_name
 from jrl2.collision_detection_single_scene import SingleSceneCollisionChecker
+from jrl2.robot import Robot
 
 np.set_printoptions(precision=4, suppress=True)
 
@@ -50,13 +51,15 @@ def test_check_sphere_collisions(sphere_centers, sphere_radii, is_collision_gt):
         assert names == {("sphere_0", "sphere_1")}
 
 
-# @pytest.fixture
-# def robot() -> Robot:
-#     return PANDA
+@pytest.fixture
+def robot() -> Robot:
+    return PANDA
 
-# def test_get_all_link_mesh_poses_non_batched(robot: Robot):
-#     q_dict = {joint.name: 0.0 for joint in robot.actuated_joints}
-#     mesh_poses = robot.get_all_link_mesh_poses_non_batched(q_dict, use_visual=False)
-#     print(f"mesh_poses:")
-#     print(f"{mesh_poses=}")
-#     exit()
+
+def test_get_all_link_mesh_poses_non_batched(robot: Robot):
+    q_dict = {joint.name: 0.0 for joint in robot.actuated_joints}
+    collision_checker = SingleSceneCollisionChecker(robot)
+    is_collision, names, contacts = collision_checker.check_collisions(q_dict)
+    print(f"is_collision: {is_collision}")
+    print(f"names: {names}")
+    # print(f"contacts: {contacts}")

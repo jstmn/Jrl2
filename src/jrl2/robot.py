@@ -204,10 +204,15 @@ class Robot:
         return poses
 
     def get_all_link_mesh_poses_non_batched(
-        self, q_dict: NP_Q_DICT_TYPE, use_visual: bool
+        self, q_dict: NP_Q_DICT_TYPE, use_visual: bool, only_poses: bool = False
     ) -> dict[str, list[tuple[trimesh.Trimesh, NP_SE3_TYPE]]]:
         """
-        Get the poses of all links in the robot.
+        Get the collision or visual meshes of all links in the robot. Note that there can be several meshes for each
+        link.
+
+        If only_poses is True:
+            1. only the poses of the meshes will be returned
+            2. The return type will be dict[str, list[tuple[None, NP_SE3_TYPE]]]
         """
         link_poses = self.get_all_link_poses_non_batched(q_dict)
         link_meshes = {}
@@ -231,37 +236,50 @@ class Robot:
                 if link_T_mesh is None:
                     link_T_mesh = np.eye(4)
                 mesh_pose = link_pose @ link_T_mesh
+                trimesh_obj = None
 
-                if geom.mesh is not None:
-                    new_filename = self._yourdfpy_model._filename_handler(fname=geom.mesh.filename)
-                    assert Path(new_filename).exists(), f"File {new_filename} does not exist"
-                    trimesh_obj = trimesh.load(
-                        new_filename,
-                        ignore_broken=True,
-                        force="mesh",
-                        skip_materials=True,
-                    )
-                elif geom.box is not None:
-                    trimesh_obj = trimesh.primitives.Box(geom.box.size)
-                elif geom.cylinder is not None:
-                    trimesh_obj = trimesh.primitives.Cylinder(geom.cylinder.radius, geom.cylinder.length)
-                elif geom.sphere is not None:
-                    trimesh_obj = trimesh.primitives.Sphere(geom.sphere.radius)
-                else:
-                    raise ValueError(f"Link {link_name} has an unsupported geometry. Geometry: {geom}")
-
+                if not only_poses:
+                    if geom.mesh is not None:
+                        new_filename = self._yourdfpy_model._filename_handler(fname=geom.mesh.filename)
+                        assert Path(new_filename).exists(), f"File {new_filename} does not exist"
+                        trimesh_obj = trimesh.load(
+                            new_filename,
+                            ignore_broken=True,
+                            force="mesh",
+                            skip_materials=True,
+                        )
+                    elif geom.box is not None:
+                        trimesh_obj = trimesh.primitives.Box(geom.box.size)
+                    elif geom.cylinder is not None:
+                        trimesh_obj = trimesh.primitives.Cylinder(geom.cylinder.radius, geom.cylinder.length)
+                    elif geom.sphere is not None:
+                        trimesh_obj = trimesh.primitives.Sphere(geom.sphere.radius)
+                    else:
+                        raise ValueError(f"Link {link_name} has an unsupported geometry. Geometry: {geom}")
                 link_meshes[link_name].append((trimesh_obj, mesh_pose))
 
         return link_meshes
 
     def visualize(self, q_dict: NP_Q_DICT_TYPE):
         server = viser.ViserServer()
-        server.scene.add_icosphere(
-            name="/hello_sphere",
-            radius=0.5,
-            color=(255, 0, 0),  # Red
-            position=(0.0, 0.0, 0.0),
+        link_mesh_poses = self.get_all_link_mesh_poses_non_batched(q_dict, use_visual=True)
+
+        server.add_grid(
+            "/grid",
+            width=5.0,
+            height=5.0,
         )
+
+        for link_name, link_trimesh_list in link_mesh_poses.items():
+            for i, (link_trimesh_object, link_trimesh_pose) in enumerate(link_trimesh_list):
+                # scalar-first order is (w, x, y, z)
+                wxyz = Rotation.from_matrix(link_trimesh_pose[:3, :3]).as_quat(scalar_first=True)
+                server.add_frame(
+                    name=f"{link_name}_{i}", position=link_trimesh_pose[:3, 3], wxyz=wxyz, axes_length=0.075
+                )
+                server.add_mesh_trimesh(
+                    name=f"/{link_name}_{i}", mesh=link_trimesh_object, position=link_trimesh_pose[:3, 3], wxyz=wxyz
+                )
 
         print("Open your browser to http://localhost:8080")
         print("Press Ctrl+C to exit")

@@ -41,6 +41,17 @@ class SingleSceneCollisionChecker:
         self, q_dict: dict[str, float]
     ) -> tuple[bool, set[tuple[str, str]], list[trimesh.collision.ContactData]]:
         link_mesh_poses = self._robot.get_all_link_mesh_poses_non_batched(q_dict, use_visual=False)
+        for link_name, link_trimesh_list in link_mesh_poses.items():
+            for i, (link_trimesh_object, link_trimesh_pose) in enumerate(link_trimesh_list):
+                self._collision_manager.add_object(
+                    mesh=link_trimesh_object,
+                    name=f"{link_name}_{i}",
+                    transform=link_trimesh_pose,
+                )
+                print(
+                    f"Added object {f'{link_name}_{i}'} to collision manager, transform: {link_trimesh_pose[:3, 3]}, link_trimesh_object: {link_trimesh_object}"
+                )
+
         # TODO: Add robots to the collision manager
         is_collision, names, contacts = self._collision_manager.in_collision_internal(
             return_names=True, return_data=True
