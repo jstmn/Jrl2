@@ -1,5 +1,6 @@
 from importlib import import_module  # type: ignore
 from pathlib import Path
+from time import sleep
 
 from yourdfpy import Robot as YourdfpyRobot
 from yourdfpy import URDF as YourdfpyURDF
@@ -100,23 +101,18 @@ class Robot:
             self._yourdfpy_model: YourdfpyURDF = load_robot_description(name, build_collision_scene_graph=True)
             self._urdfpy_robot: YourdfpyRobot = self._yourdfpy_model.robot
             module = import_module(f"robot_descriptions.{name}")
+            # Example:
+            # self._urdf_filepath='~/.cache/robot_descriptions/example-robot-data/robots/panda_description/urdf/panda.urdf'
+            # self._robot_description_dir='~/.cache/robot_descriptions/example-robot-data/robots/panda_description'
+            # self._repository_path='~/.cache/robot_descriptions/example-robot-data'
             self._urdf_filepath = Path(module.URDF_PATH)
             self._robot_description_dir = Path(module.PACKAGE_PATH)
-            # URDF_PATH='/home/jstm/.cache/robot_descriptions/example-robot-data/robots/panda_description/urdf/panda.urdf'
-            # PACKAGE_PATH='/home/jstm/.cache/robot_descriptions/example-robot-data/robots/panda_description'
-            # REPOSITORY_PATH='/home/jstm/.cache/robot_descriptions/example-robot-data'
             self._repository_path = Path(module.REPOSITORY_PATH)
             assert self._urdf_filepath.exists(), f"URDF file {self._urdf_filepath} does not exist"
             assert (
                 self._robot_description_dir.exists()
             ), f"Robot description directory {self._robot_description_dir} does not exist"
             assert self._repository_path.exists(), f"Repository path {self._repository_path} does not exist"
-            print()
-            print(f"  self._urdf_filepath:         {self._urdf_filepath}")
-            print(f"  self._robot_description_dir: {self._robot_description_dir}")
-            print(f"  self._repository_path:       {self._repository_path}")
-            print()
-
         else:
             self._name = name.replace("_description", "")
             self._urdfpy_robot = yourdfpy_robot
@@ -132,10 +128,6 @@ class Robot:
         self._joints_by_name: dict[str, Joint] = {joint.name: joint for joint in self._urdfpy_robot.joints}
         # self._successor_links maps a Link to a [(Link[parent], Joint, Link[child]), ...] tuple for every link.
         self._successor_links: dict[str, list[tuple[Link, Joint, Link]]] = _get_successor_links(self._urdfpy_robot)
-
-        # FK cache
-        self._fk_cache_non_batched: dict[tuple[str, str], NP_SE3_TYPE] = {}
-        self._fk_cache_q: NP_Q_TYPE | None = None
 
     @property
     def actuated_joints(self) -> list[Joint]:
@@ -156,6 +148,10 @@ class Robot:
     @property
     def num_actuators(self) -> int:
         return len(self.actuated_joints)
+
+    @property
+    def midpoint_configuration(self) -> NP_Q_DICT_TYPE:
+        return {joint.name: (joint.limit.lower + joint.limit.upper) / 2.0 for joint in self.actuated_joints}
 
     def get_all_link_poses_non_batched(
         self, q_dict: NP_Q_DICT_TYPE, root_link_pose: NP_SE3_TYPE = np.eye(4)
@@ -183,12 +179,7 @@ class Robot:
             current_link, joint, child_link = search_queue.pop(0)
 
             # Compute the transformation for this joint
-            if (current_link.name, joint.name) in self._fk_cache_non_batched:
-                link_T_successor = self._fk_cache_non_batched[(current_link.name, joint.name)]
-            else:
-                link_T_successor = _fk_step_non_batched(joint, q_dict_full[joint.name])
-                self._fk_cache_non_batched[(current_link.name, joint.name)] = link_T_successor
-
+            link_T_successor = _fk_step_non_batched(joint, q_dict_full[joint.name])
             poses[child_link.name] = poses[current_link.name] @ link_T_successor
             #
             for child_link_repeated, next_joint, next_child_link in self._successor_links[child_link.name]:
@@ -205,7 +196,7 @@ class Robot:
 
     def get_all_link_mesh_poses_non_batched(
         self, q_dict: NP_Q_DICT_TYPE, use_visual: bool, only_poses: bool = False
-    ) -> dict[str, list[tuple[trimesh.Trimesh, NP_SE3_TYPE]]]:
+    ) -> dict[str, list[tuple[str, trimesh.Trimesh, NP_SE3_TYPE]]]:
         """
         Get the collision or visual meshes of all links in the robot. Note that there can be several meshes for each
         link.
@@ -224,15 +215,13 @@ class Robot:
 
             # Get the mesh
             visual_or_collision = link.visuals if use_visual else link.collisions
+            use_indexing = len(visual_or_collision) > 1
             for i in range(len(visual_or_collision)):
+                name = link_name
+                if use_indexing:
+                    name += f"__{i}"
                 link_T_mesh = visual_or_collision[i].origin
                 geom = visual_or_collision[i].geometry  # May be one of the following:
-                # class Geometry:
-                #     box: Optional[Box] = None
-                #     cylinder: Optional[Cylinder] = None
-                #     sphere: Optional[Sphere] = None
-                #     mesh: Optional[Mesh] = None
-
                 if link_T_mesh is None:
                     link_T_mesh = np.eye(4)
                 mesh_pose = link_pose @ link_T_mesh
@@ -256,38 +245,90 @@ class Robot:
                         trimesh_obj = trimesh.primitives.Sphere(geom.sphere.radius)
                     else:
                         raise ValueError(f"Link {link_name} has an unsupported geometry. Geometry: {geom}")
-                link_meshes[link_name].append((trimesh_obj, mesh_pose))
-
+                link_meshes[link_name].append((name, trimesh_obj, mesh_pose))
         return link_meshes
 
-    def visualize(self, q_dict: NP_Q_DICT_TYPE):
+    def visualize(self, q_dict: NP_Q_DICT_TYPE | None = None, show_frames: bool = True):
+        assert not show_frames, "There's a bug with the frames, they are not being updated correctly"
         server = viser.ViserServer()
-        link_mesh_poses = self.get_all_link_mesh_poses_non_batched(q_dict, use_visual=True)
+        if q_dict is None:
+            q_dict = self.midpoint_configuration
 
-        server.add_grid(
-            "/grid",
-            width=5.0,
-            height=5.0,
-        )
+        import numpy as np
 
-        for link_name, link_trimesh_list in link_mesh_poses.items():
-            for i, (link_trimesh_object, link_trimesh_pose) in enumerate(link_trimesh_list):
-                # scalar-first order is (w, x, y, z)
-                wxyz = Rotation.from_matrix(link_trimesh_pose[:3, :3]).as_quat(scalar_first=True)
-                server.add_frame(
-                    name=f"{link_name}_{i}", position=link_trimesh_pose[:3, 3], wxyz=wxyz, axes_length=0.075
-                )
-                server.add_mesh_trimesh(
-                    name=f"/{link_name}_{i}", mesh=link_trimesh_object, position=link_trimesh_pose[:3, 3], wxyz=wxyz
-                )
+        np.set_printoptions(precision=4, suppress=True)
+
+        # Set the camera view to a good position + angle
+        def client_connect_callback(client: viser.ClientHandle):
+            print(f"Client {client.client_id} connected")
+            camera_handle = client.camera
+            camera_handle.position = np.array([1.5, 1.5, 1.5])
+            camera_handle.wxyz = np.array([-0.1006611, 0.17216605, 0.84593253, -0.49459513])
+            camera_handle.fov = 1.3089969389957472
+            camera_handle.look_at = np.array([0.0, 0.0, 0.5])
+            camera_handle.up_direction = np.array([0.0, 0.0, 1.0])
+
+        server.on_client_connect(client_connect_callback)
+
+        # Add the grid and robot to the scene
+        server.add_grid("/grid", width=5.0, height=5.0)
+        meshes_added = False
+        mesh_handles = {}
+
+        def update_configuration(q_dict_in: NP_Q_DICT_TYPE):
+            nonlocal meshes_added
+            link_mesh_poses = self.get_all_link_mesh_poses_non_batched(
+                q_dict_in, use_visual=True, only_poses=True if meshes_added else False
+            )
+            for _, link_trimesh_list in link_mesh_poses.items():
+                for mesh_name, link_trimesh_object, link_trimesh_pose in link_trimesh_list:
+                    wxyz = Rotation.from_matrix(link_trimesh_pose[:3, :3]).as_quat(scalar_first=True)
+                    position = link_trimesh_pose[:3, 3]
+                    name = f"/{mesh_name}"
+                    frame_name = name + "/frame"
+                    if not meshes_added:
+                        # scalar-first order is (w, x, y, z)
+                        mesh_handles[name] = server.add_mesh_trimesh(
+                            name=name, mesh=link_trimesh_object, position=position, wxyz=wxyz
+                        )
+                        if show_frames:
+                            mesh_handles[frame_name] = server.add_frame(
+                                name=frame_name, position=position, wxyz=wxyz, axes_length=0.075, axes_radius=0.005
+                            )
+                    else:
+                        mesh_handles[name].position = position
+                        mesh_handles[name].wxyz = wxyz
+                        if show_frames:
+                            mesh_handles[frame_name].position = position
+                            mesh_handles[frame_name].wxyz = wxyz
+            meshes_added = True
+
+        update_configuration(q_dict)
+
+        # Add a slider for each joint to the gui. There may be a more elegent way to do this without having a dictionary
+        # of callbacks, but ey - works well enough.
+        def on_slider_update(event: viser.GuiEvent):
+            value = callbacks[event.target.label].value
+            q_dict[event.target.label] = value
+            update_configuration(q_dict)
+
+        callbacks = {}
+        for joint in self.actuated_joints:
+            range_ = joint.limit.upper - joint.limit.lower
+            callbacks[joint.name] = server.gui.add_slider(
+                label=joint.name,
+                min=joint.limit.lower,
+                max=joint.limit.upper,
+                step=range_ / 100.0,
+                initial_value=q_dict[joint.name],
+            )
+            callbacks[joint.name].on_update(on_slider_update)
 
         print("Open your browser to http://localhost:8080")
         print("Press Ctrl+C to exit")
 
         while True:
-            import time
-
-            time.sleep(10.0)
+            sleep(2.0)
 
     def __str__(self):
         return f"Robot('{self._name}')"

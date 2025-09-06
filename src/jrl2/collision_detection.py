@@ -37,6 +37,20 @@ class NonBatchedCollisionChecker:
 
         # Test loading
         for link in self._robot.links:
+            print(f"Link: {link.name}")
+            print(f"Link visuals: {link.visuals}")
+            if link.visuals:
+                for i, visual in enumerate(link.visuals):
+                    print(f"  Visual {i}: {visual}")
+                    print(f"  Visual name: {visual.name}")
+                    print(f"  Visual geometry: {visual.geometry}")
+                    if visual.geometry and visual.geometry.mesh:
+                        print(f"  Mesh filename: {visual.geometry.mesh.filename}")
+                        print(f"  Mesh scale: {visual.geometry.mesh.scale}")
+            else:
+                print("  No visuals found")
+                continue
+
             mesh_filepath_raw = str(link.visuals[0].geometry.mesh.filename)
             assert mesh_filepath_raw.startswith(
                 "package://"

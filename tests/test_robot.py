@@ -15,6 +15,12 @@ from jrl2.robots import UR5
 np.set_printoptions(precision=4, suppress=True)
 
 
+""" Run the test with:
+uv run pytest  -W "ignore::DeprecationWarning" -W "ignore::UserWarning" --capture=no tests/test_robot.py
+
+"""
+
+
 def _get_translated_pose(offset: np.ndarray) -> np.ndarray:
     pose = np.eye(4)
     pose[:3, 3] = offset
@@ -193,22 +199,23 @@ def test_get_all_link_poses_non_batched_ur5(ur5_robot: UR5):
         ur5_robot._yourdfpy_model.write_xml_file(urdf_filepath)
 
     try:
-        q_dict = {joint.name: np.random.random() for joint in ur5_robot.actuated_joints}
-        jrl2_link_poses = ur5_robot.get_all_link_poses_non_batched(q_dict)
+        for _ in range(10):
+            q_dict = {joint.name: 2 * np.random.random() - 1 for joint in ur5_robot.actuated_joints}
+            jrl2_link_poses = ur5_robot.get_all_link_poses_non_batched(q_dict)
 
-        # Verify the jrl2 link poses are well formatted
-        for link_name, tf in jrl2_link_poses.items():
-            assert tf is not None, f"JRL2 forward kinematics returned None for link {link_name}"
-            assert isinstance(tf, np.ndarray), f"JRL2 forward kinematics returned {type(tf)} for link {link_name}"
-            assert tf.shape == (4, 4), f"JRL2 forward kinematics returned {tf.shape} for link {link_name}"
+            # Verify the jrl2 link poses are well formatted
+            for link_name, tf in jrl2_link_poses.items():
+                assert tf is not None, f"JRL2 forward kinematics returned None for link {link_name}"
+                assert isinstance(tf, np.ndarray), f"JRL2 forward kinematics returned {type(tf)} for link {link_name}"
+                assert tf.shape == (4, 4), f"JRL2 forward kinematics returned {tf.shape} for link {link_name}"
 
-        for link_name in ur5_robot.link_names:
-            assert link_name in jrl2_link_poses
-            link_tf_kinpy = forward_kinematics_kinpy(urdf_filepath, q_dict, link_name)
-            link_tf_jrl2 = jrl2_link_poses[link_name]
-            assert link_tf_kinpy is not None, f"Kinpy forward kinematics returned None for link {link_name}"
-            assert link_tf_jrl2 is not None, f"JRL2 forward kinematics returned None for link {link_name}"
-            assert np.allclose(jrl2_link_poses[link_name], link_tf_kinpy)
+            for link_name in ur5_robot.link_names:
+                assert link_name in jrl2_link_poses
+                link_tf_kinpy = forward_kinematics_kinpy(urdf_filepath, q_dict, link_name)
+                link_tf_jrl2 = jrl2_link_poses[link_name]
+                assert link_tf_kinpy is not None, f"Kinpy forward kinematics returned None for link {link_name}"
+                assert link_tf_jrl2 is not None, f"JRL2 forward kinematics returned None for link {link_name}"
+                assert np.allclose(jrl2_link_poses[link_name], link_tf_kinpy)
 
     finally:
         # Clean up the temporary file

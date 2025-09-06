@@ -14,7 +14,7 @@ def main():
     args = parser.parse_args()
 
     robot = get_robot_by_name(args.robot.lower())
-    q_dict = {joint.name: 0.0 for joint in robot.actuated_joints}
+    q_dict = robot.midpoint_configuration
     robot.visualize(q_dict=q_dict)
 
 
