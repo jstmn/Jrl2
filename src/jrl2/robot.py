@@ -248,8 +248,8 @@ class Robot:
                 link_meshes[link_name].append((name, trimesh_obj, mesh_pose))
         return link_meshes
 
-    def visualize(self, q_dict: NP_Q_DICT_TYPE | None = None, show_frames: bool = True):
-        assert not show_frames, "There's a bug with the frames, they are not being updated correctly"
+    def visualize(self, q_dict: NP_Q_DICT_TYPE | None = None, show_frames: bool = False):
+        assert show_frames is False, "There's a bug with the frames, they are not being updated correctly"
         server = viser.ViserServer()
         if q_dict is None:
             q_dict = self.midpoint_configuration
@@ -282,6 +282,7 @@ class Robot:
             )
             for _, link_trimesh_list in link_mesh_poses.items():
                 for mesh_name, link_trimesh_object, link_trimesh_pose in link_trimesh_list:
+                    print(type(link_trimesh_object))
                     wxyz = Rotation.from_matrix(link_trimesh_pose[:3, :3]).as_quat(scalar_first=True)
                     position = link_trimesh_pose[:3, 3]
                     name = f"/{mesh_name}"
@@ -295,12 +296,30 @@ class Robot:
                             mesh_handles[frame_name] = server.add_frame(
                                 name=frame_name, position=position, wxyz=wxyz, axes_length=0.075, axes_radius=0.005
                             )
+                        print(type(mesh_handles[name]))
                     else:
                         mesh_handles[name].position = position
                         mesh_handles[name].wxyz = wxyz
                         if show_frames:
                             mesh_handles[frame_name].position = position
                             mesh_handles[frame_name].wxyz = wxyz
+
+            if not meshes_added:
+                for mesh, mesh_handle in mesh_handles.items():
+
+                    def make_click_handler(handle: viser.GlbHandle):
+                        def _on_click(event: viser.GuiEvent):
+                            print(f"Clicked on {handle.name}")
+                            # toggle between red and default (white)
+                            if handle.color is None or (handle.color == (1.0, 1.0, 1.0)):
+                                handle.color = (1.0, 0.0, 0.0)  # red
+                            else:
+                                handle.color = (1.0, 1.0, 1.0)  # white
+
+                        return _on_click
+
+                    mesh_handle.on_click(make_click_handler(mesh_handle))
+
             meshes_added = True
 
         update_configuration(q_dict)
