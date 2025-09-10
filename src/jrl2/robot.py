@@ -1,14 +1,16 @@
 from importlib import import_module  # type: ignore
+import importlib.resources
 from pathlib import Path
-from time import sleep
+import yaml
 
+
+import jrl2.collision_filtering_data
 from yourdfpy import Robot as YourdfpyRobot
 from yourdfpy import URDF as YourdfpyURDF
 from yourdfpy import Link, Joint
 from robot_descriptions.loaders.yourdfpy import load_robot_description
 import numpy as np
 from scipy.spatial.transform import Rotation
-import viser
 import trimesh
 
 
@@ -94,7 +96,28 @@ def _get_successor_links(urdfpy_robot: YourdfpyRobot) -> dict:
 
 
 class Robot:
-    def __init__(self, name: str, yourdfpy_robot: YourdfpyRobot | None = None):
+    def __init__(
+        self,
+        name: str,
+        yourdfpy_robot: YourdfpyRobot | None = None,
+        always_colliding_links: list[tuple[str, str]] = [],
+        never_colliding_links: list[tuple[str, str]] = [],
+    ):
+        """Generate a robot class from a URDF file.
+
+        Args:
+            name (str): _description_
+            yourdfpy_robot (YourdfpyRobot | None, optional): The robot description to load. Can be None, but this should
+                                                             only be done by unittests.
+            always_colliding_links (list[tuple[str, str]], optional): A list of links on the robot that are always
+                                                                      colliding. Every parent/child link pair will be
+                                                                      added to this list. This collisions paradoxically
+                                                                      will be ignored by the collision checker, because
+                                                                      while their meshes may be touching, they are not
+                                                                      actually colliding.
+            never_colliding_links (list[tuple[str, str]], optional): A list of links on the robot that are will never
+                                                                     collide.
+        """
         if yourdfpy_robot is None:
             assert "_description" in name, f"Name {name} should contain _description"
             self._name = name.replace("_description", "")
@@ -129,6 +152,37 @@ class Robot:
         # self._successor_links maps a Link to a [(Link[parent], Joint, Link[child]), ...] tuple for every link.
         self._successor_links: dict[str, list[tuple[Link, Joint, Link]]] = _get_successor_links(self._urdfpy_robot)
 
+        # Load collision filtering data from package resources
+        resource_path = importlib.resources.files(jrl2.collision_filtering_data) / f"{self._name}.yaml"
+        with importlib.resources.as_file(resource_path) as file_path:
+            with open(file_path, "r") as f:
+                self._collision_filtering_data = yaml.load(f, Loader=yaml.FullLoader)
+
+        # Extract collision filtering data
+        self._always_colliding_links = set(
+            [
+                self.return_ordered_geometry_name_pair(link_1, link_2)
+                for link_1, link_2 in self._collision_filtering_data["collision"]["always"]
+            ]
+        )
+        self._never_colliding_links = set(
+            [
+                self.return_ordered_geometry_name_pair(link_1, link_2)
+                for link_1, link_2 in self._collision_filtering_data["collision"]["never"]
+            ]
+        )
+
+    def links_cant_collide(self, link_1: str, link_2: str) -> bool:
+        """Returns whether two links are physicall unable of collliding so long as joint limits are respected."""
+        ordered_link_pair = self.return_ordered_geometry_name_pair(link_1, link_2)
+        if (ordered_link_pair) in self._never_colliding_links or ordered_link_pair in self._always_colliding_links:
+            return True
+        return False
+
+    @property
+    def name(self) -> str:
+        return self._name
+
     @property
     def actuated_joints(self) -> list[Joint]:
         return [joint for joint in self._urdfpy_robot.joints if joint.type in ACTUATED_JOINT_TYPES]
@@ -152,6 +206,34 @@ class Robot:
     @property
     def midpoint_configuration(self) -> NP_Q_DICT_TYPE:
         return {joint.name: (joint.limit.lower + joint.limit.upper) / 2.0 for joint in self.actuated_joints}
+
+    @property
+    def visual_geometry_names(self) -> list[str]:
+        names = []
+        all_geometries = self.get_all_link_geometry_poses_non_batched(self.midpoint_configuration, use_visual=True)
+        for _, geometries in all_geometries.items():
+            for geometry in geometries:
+                names.append(geometry[0])
+        return names
+
+    @property
+    def collision_geometry_names(self) -> list[str]:
+        names = []
+        all_geometries = self.get_all_link_geometry_poses_non_batched(self.midpoint_configuration, use_visual=False)
+        for _, geometries in all_geometries.items():
+            for geometry in geometries:
+                names.append(geometry[0])
+        return names
+
+    @staticmethod
+    def return_ordered_geometry_name_pair(name_1: str, name_2: str) -> tuple[str, str]:
+        if name_1 < name_2:
+            return name_1, name_2
+        else:
+            return name_2, name_1
+
+    def sample_random_q_non_batched(self) -> NP_Q_DICT_TYPE:
+        return {joint.name: np.random.uniform(joint.limit.lower, joint.limit.upper) for joint in self.actuated_joints}
 
     def get_all_link_poses_non_batched(
         self, q_dict: NP_Q_DICT_TYPE, root_link_pose: NP_SE3_TYPE = np.eye(4)
@@ -194,12 +276,29 @@ class Robot:
 
         return poses
 
-    def get_all_link_mesh_poses_non_batched(
+    def get_all_link_geometry_poses_non_batched(
         self, q_dict: NP_Q_DICT_TYPE, use_visual: bool, only_poses: bool = False
     ) -> dict[str, list[tuple[str, trimesh.Trimesh, NP_SE3_TYPE]]]:
         """
-        Get the collision or visual meshes of all links in the robot. Note that there can be several meshes for each
-        link.
+        Get the collision or visual geometries for every link in the robot. Note that there can be several geometries
+        for each link.
+
+
+        Returns a dict with the following structure:
+            {
+                link_A: [
+                    (link_A::link_A.stl, trimesh_object, geometry_pose),
+                ],
+                link_B: [
+                    (link_B::link_B.stl, trimesh_object, geometry_pose),
+                ],
+                link_C: [
+                    (link_C::box_0, trimesh_object, geometry_pose),
+                    (link_C::box_1, trimesh_object, geometry_pose),
+                    (link_C::sphere_0, trimesh_object, geometry_pose),
+                ],
+                ...
+            }
 
         If only_poses is True:
             1. only the poses of the meshes will be returned
@@ -215,20 +314,18 @@ class Robot:
 
             # Get the mesh
             visual_or_collision = link.visuals if use_visual else link.collisions
-            use_indexing = len(visual_or_collision) > 1
+            box_count = 0
+            cylinder_count = 0
+            sphere_count = 0
             for i in range(len(visual_or_collision)):
-                name = link_name
-                if use_indexing:
-                    name += f"__{i}"
                 link_T_mesh = visual_or_collision[i].origin
                 geom = visual_or_collision[i].geometry  # May be one of the following:
                 if link_T_mesh is None:
                     link_T_mesh = np.eye(4)
                 mesh_pose = link_pose @ link_T_mesh
-                trimesh_obj = None
 
-                if not only_poses:
-                    if geom.mesh is not None:
+                if geom.mesh is not None:
+                    if not only_poses:
                         new_filename = self._yourdfpy_model._filename_handler(fname=geom.mesh.filename)
                         assert Path(new_filename).exists(), f"File {new_filename} does not exist"
                         trimesh_obj = trimesh.load(
@@ -237,117 +334,29 @@ class Robot:
                             force="mesh",
                             skip_materials=True,
                         )
-                    elif geom.box is not None:
-                        trimesh_obj = trimesh.primitives.Box(geom.box.size)
-                    elif geom.cylinder is not None:
-                        trimesh_obj = trimesh.primitives.Cylinder(geom.cylinder.radius, geom.cylinder.length)
-                    elif geom.sphere is not None:
-                        trimesh_obj = trimesh.primitives.Sphere(geom.sphere.radius)
-                    else:
-                        raise ValueError(f"Link {link_name} has an unsupported geometry. Geometry: {geom}")
+                    name = f"{link_name}::{Path(geom.mesh.filename).name}"
+                    # print(f"geom.mesh.filename: {geom.mesh.filename}, name: {name}")
+                elif geom.box is not None:
+                    box_count += 1
+                    trimesh_obj = trimesh.primitives.Box(geom.box.size) if not only_poses else None
+                    name = f"{link_name}::box_{box_count}"
+                elif geom.cylinder is not None:
+                    cylinder_count += 1
+                    trimesh_obj = (
+                        trimesh.primitives.Cylinder(geom.cylinder.radius, geom.cylinder.length)
+                        if not only_poses
+                        else None
+                    )
+                    name = f"{link_name}::cylinder_{cylinder_count}"
+                elif geom.sphere is not None:
+                    sphere_count += 1
+                    trimesh_obj = trimesh.primitives.Sphere(geom.sphere.radius) if not only_poses else None
+                    name = f"{link_name}::sphere_{sphere_count}"
+                else:
+                    raise ValueError(f"Link {link_name} has an unsupported geometry. Geometry: {geom}")
+
                 link_meshes[link_name].append((name, trimesh_obj, mesh_pose))
         return link_meshes
-
-    def visualize(self, q_dict: NP_Q_DICT_TYPE | None = None, show_frames: bool = False):
-        assert show_frames is False, "There's a bug with the frames, they are not being updated correctly"
-        server = viser.ViserServer()
-        if q_dict is None:
-            q_dict = self.midpoint_configuration
-
-        import numpy as np
-
-        np.set_printoptions(precision=4, suppress=True)
-
-        # Set the camera view to a good position + angle
-        def client_connect_callback(client: viser.ClientHandle):
-            print(f"Client {client.client_id} connected")
-            camera_handle = client.camera
-            camera_handle.position = np.array([1.5, 1.5, 1.5])
-            camera_handle.wxyz = np.array([-0.1006611, 0.17216605, 0.84593253, -0.49459513])
-            camera_handle.fov = 1.3089969389957472
-            camera_handle.look_at = np.array([0.0, 0.0, 0.5])
-            camera_handle.up_direction = np.array([0.0, 0.0, 1.0])
-
-        server.on_client_connect(client_connect_callback)
-
-        # Add the grid and robot to the scene
-        server.add_grid("/grid", width=5.0, height=5.0)
-        meshes_added = False
-        mesh_handles = {}
-
-        def update_configuration(q_dict_in: NP_Q_DICT_TYPE):
-            nonlocal meshes_added
-            link_mesh_poses = self.get_all_link_mesh_poses_non_batched(
-                q_dict_in, use_visual=True, only_poses=True if meshes_added else False
-            )
-            for _, link_trimesh_list in link_mesh_poses.items():
-                for mesh_name, link_trimesh_object, link_trimesh_pose in link_trimesh_list:
-                    print(type(link_trimesh_object))
-                    wxyz = Rotation.from_matrix(link_trimesh_pose[:3, :3]).as_quat(scalar_first=True)
-                    position = link_trimesh_pose[:3, 3]
-                    name = f"/{mesh_name}"
-                    frame_name = name + "/frame"
-                    if not meshes_added:
-                        # scalar-first order is (w, x, y, z)
-                        mesh_handles[name] = server.add_mesh_trimesh(
-                            name=name, mesh=link_trimesh_object, position=position, wxyz=wxyz
-                        )
-                        if show_frames:
-                            mesh_handles[frame_name] = server.add_frame(
-                                name=frame_name, position=position, wxyz=wxyz, axes_length=0.075, axes_radius=0.005
-                            )
-                        print(type(mesh_handles[name]))
-                    else:
-                        mesh_handles[name].position = position
-                        mesh_handles[name].wxyz = wxyz
-                        if show_frames:
-                            mesh_handles[frame_name].position = position
-                            mesh_handles[frame_name].wxyz = wxyz
-
-            if not meshes_added:
-                for mesh, mesh_handle in mesh_handles.items():
-
-                    def make_click_handler(handle: viser.GlbHandle):
-                        def _on_click(event: viser.GuiEvent):
-                            print(f"Clicked on {handle.name}")
-                            # toggle between red and default (white)
-                            if handle.color is None or (handle.color == (1.0, 1.0, 1.0)):
-                                handle.color = (1.0, 0.0, 0.0)  # red
-                            else:
-                                handle.color = (1.0, 1.0, 1.0)  # white
-
-                        return _on_click
-
-                    mesh_handle.on_click(make_click_handler(mesh_handle))
-
-            meshes_added = True
-
-        update_configuration(q_dict)
-
-        # Add a slider for each joint to the gui. There may be a more elegent way to do this without having a dictionary
-        # of callbacks, but ey - works well enough.
-        def on_slider_update(event: viser.GuiEvent):
-            value = callbacks[event.target.label].value
-            q_dict[event.target.label] = value
-            update_configuration(q_dict)
-
-        callbacks = {}
-        for joint in self.actuated_joints:
-            range_ = joint.limit.upper - joint.limit.lower
-            callbacks[joint.name] = server.gui.add_slider(
-                label=joint.name,
-                min=joint.limit.lower,
-                max=joint.limit.upper,
-                step=range_ / 100.0,
-                initial_value=q_dict[joint.name],
-            )
-            callbacks[joint.name].on_update(on_slider_update)
-
-        print("Open your browser to http://localhost:8080")
-        print("Press Ctrl+C to exit")
-
-        while True:
-            sleep(2.0)
 
     def __str__(self):
         return f"Robot('{self._name}')"

@@ -2,7 +2,6 @@ from jrl2.robot import Robot
 
 
 class Panda(Robot):
-
     def __init__(self):
         super().__init__("panda_description")
 
@@ -11,11 +10,6 @@ class Panda(Robot):
 # class Fr3(Robot):
 #     def __init__(self):
 #         super().__init__("fr3_description")
-
-
-class PR2(Robot):
-    def __init__(self):
-        super().__init__("pr2_description")
 
 
 class UR5(Robot):
@@ -28,12 +22,7 @@ class UR10(Robot):
         super().__init__("ur10_description")
 
 
-class Baxter(Robot):
-    def __init__(self):
-        super().__init__("baxter_description")
-
-
-ALL_ROBOTS = [Panda, PR2, UR5, UR10, Baxter]
+ALL_ROBOTS = [Panda, UR5, UR10]
 NAME_TO_ROBOT = {robot.__name__.lower(): robot for robot in ALL_ROBOTS}
 
 

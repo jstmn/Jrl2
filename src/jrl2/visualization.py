@@ -2,10 +2,15 @@ from jrl2.robot import Robot, NP_Q_DICT_TYPE
 import viser
 from scipy.spatial.transform import Rotation
 from time import sleep
-from jrl2.robots import Panda
+from jrl2.collision_detection_single_scene import SingleSceneCollisionChecker
 
 
-def visualize(robot: Robot, q_dict: NP_Q_DICT_TYPE | None = None, show_frames: bool = False):
+def robot_scene(
+    robot: Robot,
+    collision_checker: SingleSceneCollisionChecker,
+    q_dict: NP_Q_DICT_TYPE | None = None,
+    show_frames: bool = False,
+) -> viser.ViserServer:
     assert show_frames is False, "There's a bug with the frames, they are not being updated correctly"
     server = viser.ViserServer()
     if q_dict is None:
@@ -34,18 +39,18 @@ def visualize(robot: Robot, q_dict: NP_Q_DICT_TYPE | None = None, show_frames: b
 
     def update_configuration(q_dict_in: NP_Q_DICT_TYPE):
         nonlocal meshes_added
-        link_mesh_poses = robot.get_all_link_mesh_poses_non_batched(
+        link_mesh_poses = robot.get_all_link_geometry_poses_non_batched(
             q_dict_in, use_visual=True, only_poses=True if meshes_added else False
         )
         for _, link_trimesh_list in link_mesh_poses.items():
             for mesh_name, link_trimesh_object, link_trimesh_pose in link_trimesh_list:
-                print(type(link_trimesh_object))
+                # scalar_first order is (w, x, y, z)
                 wxyz = Rotation.from_matrix(link_trimesh_pose[:3, :3]).as_quat(scalar_first=True)
                 position = link_trimesh_pose[:3, 3]
                 name = f"/{mesh_name}"
                 frame_name = name + "/frame"
+                print(name, link_trimesh_object)
                 if not meshes_added:
-                    # scalar-first order is (w, x, y, z)
                     mesh_handles[name] = server.add_mesh_trimesh(
                         name=name, mesh=link_trimesh_object, position=position, wxyz=wxyz
                     )
@@ -53,7 +58,6 @@ def visualize(robot: Robot, q_dict: NP_Q_DICT_TYPE | None = None, show_frames: b
                         mesh_handles[frame_name] = server.add_frame(
                             name=frame_name, position=position, wxyz=wxyz, axes_length=0.075, axes_radius=0.005
                         )
-                    print(type(mesh_handles[name]))
                 else:
                     mesh_handles[name].position = position
                     mesh_handles[name].wxyz = wxyz
@@ -61,22 +65,14 @@ def visualize(robot: Robot, q_dict: NP_Q_DICT_TYPE | None = None, show_frames: b
                         mesh_handles[frame_name].position = position
                         mesh_handles[frame_name].wxyz = wxyz
 
-        if not meshes_added:
-            for mesh, mesh_handle in mesh_handles.items():
-
-                def make_click_handler(handle: viser.GlbHandle):
-                    def _on_click(event: viser.GuiEvent):
-                        print(f"Clicked on {handle.name}")
-                        # toggle between red and default (white)
-                        if handle.color is None or (handle.color == (1.0, 1.0, 1.0)):
-                            handle.color = (1.0, 0.0, 0.0)  # red
-                        else:
-                            handle.color = (1.0, 1.0, 1.0)  # white
-
-                    return _on_click
-
-                mesh_handle.on_click(make_click_handler(mesh_handle))
-
+        is_collision, names = collision_checker.check_collisions(q_dict_in)
+        print("------------------------")
+        for name in names:
+            print("name: ", name)
+        print("------------")
+        # for contact in contacts:
+        #     print("contact: ", contact.names)
+        print("------------------------")
         meshes_added = True
 
     update_configuration(q_dict)
@@ -103,14 +99,9 @@ def visualize(robot: Robot, q_dict: NP_Q_DICT_TYPE | None = None, show_frames: b
     print("Open your browser to http://localhost:8080")
     print("Press Ctrl+C to exit")
 
+    return server
+
+
+def idle(server: viser.ViserServer):
     while True:
         sleep(2.0)
-
-""""
-uv run src/jrl2/visualization.py
-"""
-
-
-if __name__ == "__main__":
-    robot = Panda()
-    visualize(robot)

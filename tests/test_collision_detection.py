@@ -40,11 +40,10 @@ def test_check_sphere_collisions(sphere_centers, sphere_radii, is_collision_gt):
         collision_checker.add_sphere(sphere_center, sphere_radius)
 
     q_dict = {joint.name: 0.0 for joint in PANDA.actuated_joints}
-    is_collision, names, contacts = collision_checker.check_collisions(q_dict)
+    is_collision, names = collision_checker.check_collisions(q_dict)
 
     print(f"is_collision: {is_collision}")
     print(f"names: {names}")
-    print(f"contacts: {contacts}")
 
     assert is_collision == is_collision_gt, f"Expected collision: {is_collision_gt}, got: {is_collision}"
     if is_collision:
@@ -56,10 +55,9 @@ def robot() -> Robot:
     return PANDA
 
 
-def test_get_all_link_mesh_poses_non_batched(robot: Robot):
+def test_get_all_link_geometry_poses_non_batched(robot: Robot):
     q_dict = {joint.name: 0.0 for joint in robot.actuated_joints}
     collision_checker = SingleSceneCollisionChecker(robot)
-    is_collision, names, contacts = collision_checker.check_collisions(q_dict)
+    is_collision, names = collision_checker.check_collisions(q_dict)
     print(f"is_collision: {is_collision}")
     print(f"names: {names}")
-    # print(f"contacts: {contacts}")
