@@ -1,8 +1,10 @@
 import numpy as np
 from time import time
-from jrl2.robot import Robot
 from dataclasses import dataclass
+
 import trimesh
+
+from jrl2.robot import Robot
 
 
 def _translation_to_SE3(translation: np.ndarray) -> np.ndarray:
@@ -59,6 +61,7 @@ class SingleSceneCollisionChecker:
         return_contacts: bool = False,
     ) -> tuple[bool, set[tuple[str, str]]]:
         """Check for collisions at the given robot configuration."""
+        self._robot.assert_valid_configuration(q_dict)
         t0 = time()
 
         # Run FK
@@ -96,15 +99,11 @@ class SingleSceneCollisionChecker:
 
         contacts_filtered = []
         if return_contacts:
-            # print("~~~~~~~~~~~~")
-            for i, contact in enumerate(contacts):
+            for contact in contacts:
                 assert len(contact.names) == 2
                 name_pair = tuple(contact.names)
                 if not self._robot.geometries_cant_collide(name_pair[0], name_pair[1], use_visual=self._use_visual):
                     contacts_filtered.append(contact)
-                # else:
-                #     if "box" in name_pair[0] or "box" in name_pair[1]:
-                #         print(f" {i} contact: {name_pair}")
             return len(pairs_filtered) > 0, pairs_filtered, contacts_filtered
         return len(pairs_filtered) > 0, pairs_filtered
 
@@ -116,5 +115,4 @@ class SingleSceneCollisionChecker:
         self._collision_manager.add_object(
             mesh=trimesh_sphere,
             name=sphere_name,
-            # transform=world_T_center,
         )

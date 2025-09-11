@@ -136,10 +136,43 @@ class Robot:
                 self._robot_description_dir.exists()
             ), f"Robot description directory {self._robot_description_dir} does not exist"
             assert self._repository_path.exists(), f"Repository path {self._repository_path} does not exist"
+
+            # Extract collision filtering data
+            resource_path = importlib.resources.files(jrl2.collision_filtering_data) / f"{self._name}.yaml"
+            with importlib.resources.as_file(resource_path) as file_path:
+                with open(file_path, "r") as f:
+                    self._collision_filtering_data = yaml.load(f, Loader=yaml.FullLoader)
+
+            self._collision_filtering_data = {
+                "collision-always": [
+                    self.return_ordered_geometry_name_pair(geom_1, geom_2)
+                    for geom_1, geom_2 in self._collision_filtering_data["collision"]["always"]
+                ],
+                "collision-never": [
+                    self.return_ordered_geometry_name_pair(geom_1, geom_2)
+                    for geom_1, geom_2 in self._collision_filtering_data["collision"]["never"]
+                ],
+                "visual-always": [
+                    self.return_ordered_geometry_name_pair(geom_1, geom_2)
+                    for geom_1, geom_2 in self._collision_filtering_data["visual"]["always"]
+                ],
+                "visual-never": [
+                    self.return_ordered_geometry_name_pair(geom_1, geom_2)
+                    for geom_1, geom_2 in self._collision_filtering_data["visual"]["never"]
+                ],
+            }
+
         else:
             self._name = name.replace("_description", "")
             self._urdfpy_robot = yourdfpy_robot
             self._yourdfpy_model = YourdfpyURDF(robot=yourdfpy_robot, build_collision_scene_graph=True)
+            self._collision_filtering_data = {
+                "collision-always": [],
+                "collision-never": [],
+                "visual-always": [],
+                "visual-never": [],
+            }
+
 
         assert isinstance(
             self._yourdfpy_model, YourdfpyURDF
@@ -152,32 +185,7 @@ class Robot:
         # self._successor_links maps a Link to a [(Link[parent], Joint, Link[child]), ...] tuple for every link.
         self._successor_links: dict[str, list[tuple[Link, Joint, Link]]] = _get_successor_links(self._urdfpy_robot)
 
-        # Load collision filtering data from package resources
-        resource_path = importlib.resources.files(jrl2.collision_filtering_data) / f"{self._name}.yaml"
-        with importlib.resources.as_file(resource_path) as file_path:
-            with open(file_path, "r") as f:
-                self._collision_filtering_data = yaml.load(f, Loader=yaml.FullLoader)
-
-        # Extract collision filtering data
-        self._collision_filtering_data = {
-            "collision-always": [
-                self.return_ordered_geometry_name_pair(geom_1, geom_2)
-                for geom_1, geom_2 in self._collision_filtering_data["collision"]["always"]
-            ],
-            "collision-never": [
-                self.return_ordered_geometry_name_pair(geom_1, geom_2)
-                for geom_1, geom_2 in self._collision_filtering_data["collision"]["never"]
-            ],
-            "visual-always": [
-                self.return_ordered_geometry_name_pair(geom_1, geom_2)
-                for geom_1, geom_2 in self._collision_filtering_data["visual"]["always"]
-            ],
-            "visual-never": [
-                self.return_ordered_geometry_name_pair(geom_1, geom_2)
-                for geom_1, geom_2 in self._collision_filtering_data["visual"]["never"]
-            ],
-        }
-
+        
     def geometries_cant_collide(self, geom_1: str, geom_2: str, use_visual: bool) -> bool:
         """Returns whether two links are physically unable of colliding so long as joint limits are respected."""
         return (
@@ -186,6 +194,16 @@ class Robot:
             or self.return_ordered_geometry_name_pair(geom_1, geom_2)
             in self._collision_filtering_data[f"{'visual' if use_visual else 'collision'}-never"]
         )
+
+    def assert_valid_configuration(self, q_dict: NP_Q_DICT_TYPE):
+        """Assert that a configuration is valid.
+        """
+        assert len(q_dict) == self.num_actuators
+        assert set(q_dict.keys()) == set(self.actuated_joint_names)
+        for joint_name, joint_angle in q_dict.items():
+            lims = (self._joints_by_name[joint_name].limit.lower, self._joints_by_name[joint_name].limit.upper)
+            assert joint_angle >= lims[0], f"Angle {joint_name} = {joint_angle:0.4f} not in {lims}"
+            assert joint_angle <= lims[1], f"Angle {joint_name} = {joint_angle:0.4f} not in {lims}"
 
     @property
     def name(self) -> str:

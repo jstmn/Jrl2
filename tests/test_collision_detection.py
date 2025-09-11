@@ -30,24 +30,16 @@ uv run pytest  -W "ignore::DeprecationWarning" -W "ignore::UserWarning" --captur
         ),
     ],
 )
-def test_check_sphere_collisions(sphere_centers, sphere_radii, is_collision_gt):
-    print()
-    print("test_check_collisions()")
+def test_check_sphere_collisions(sphere_centers, sphere_radii, is_collision_gt: bool):
     robot = PANDA
-    collision_checker = SingleSceneCollisionChecker(robot)
-
-    for sphere_center, sphere_radius in zip(sphere_centers["sphere_centers"], sphere_radii["sphere_radii"]):
-        collision_checker.add_sphere(sphere_center, sphere_radius)
-
-    q_dict = {joint.name: 0.0 for joint in PANDA.actuated_joints}
-    is_collision, names = collision_checker.check_collisions(q_dict)
-
-    print(f"is_collision: {is_collision}")
-    print(f"names: {names}")
-
-    assert is_collision == is_collision_gt, f"Expected collision: {is_collision_gt}, got: {is_collision}"
-    if is_collision:
-        assert names == {("sphere_0", "sphere_1")}
+    for use_visual in [True, False]:
+        collision_checker = SingleSceneCollisionChecker(robot, use_visual=use_visual)
+        for sphere_center, sphere_radius in zip(sphere_centers["sphere_centers"], sphere_radii["sphere_radii"]):
+            collision_checker.add_sphere(sphere_center, sphere_radius)
+        is_collision, colliding_links = collision_checker.check_collisions(robot.midpoint_configuration)
+        assert is_collision == is_collision_gt, f"Expected collision: {is_collision_gt}, got: {is_collision}"
+        if is_collision:
+            assert colliding_links == {("sphere_0", "sphere_1")}
 
 
 @pytest.fixture
@@ -56,8 +48,11 @@ def robot() -> Robot:
 
 
 def test_get_all_link_geometry_poses_non_batched(robot: Robot):
-    q_dict = {joint.name: 0.0 for joint in robot.actuated_joints}
-    collision_checker = SingleSceneCollisionChecker(robot)
-    is_collision, names = collision_checker.check_collisions(q_dict)
-    print(f"is_collision: {is_collision}")
-    print(f"names: {names}")
+    """There should be no collision between the robot and itself at the midpoint configuration.
+    For both visual and collision geometries.
+    """
+    for use_visual in [True, False]:
+        collision_checker = SingleSceneCollisionChecker(robot, use_visual=use_visual)
+        is_collision, names = collision_checker.check_collisions(robot.midpoint_configuration)
+        assert not is_collision, f"Expected no collision, got {is_collision}"
+        assert len(names) == 0, f"Expected no collision, got {names}"
