@@ -19,17 +19,18 @@ class Sphere:
 
 
 class SingleSceneCollisionChecker:
-    def __init__(self, robot: Robot):
+    def __init__(self, robot: Robot, use_visual: bool):
         self._robot = robot
         self._robots = []
         self._spheres = []
         self._capsules = []
         self._boxes = []
+        self._use_visual = use_visual
         self._collision_manager = trimesh.collision.CollisionManager()
 
         # Add meshes to scene
         link_mesh_poses = self._robot.get_all_link_geometry_poses_non_batched(
-            robot.midpoint_configuration, use_visual=False
+            robot.midpoint_configuration, use_visual=self._use_visual
         )
         for _, link_trimesh_list in link_mesh_poses.items():
             for mesh_name, link_trimesh_object, link_trimesh_pose in link_trimesh_list:
@@ -53,7 +54,6 @@ class SingleSceneCollisionChecker:
     def check_collisions(
         self,
         q_dict: dict[str, float],
-        use_visual: bool = False,
         dont_filter: bool = False,
         print_timing: bool = False,
         return_contacts: bool = False,
@@ -62,7 +62,9 @@ class SingleSceneCollisionChecker:
         t0 = time()
 
         # Run FK
-        link_mesh_poses = self._robot.get_all_link_geometry_poses_non_batched(q_dict, use_visual=use_visual)
+        link_mesh_poses = self._robot.get_all_link_geometry_poses_non_batched(
+            q_dict, use_visual=self._use_visual, only_poses=True
+        )
         for _, link_trimesh_list in link_mesh_poses.items():
             for mesh_name, _, link_trimesh_pose in link_trimesh_list:
                 self._collision_manager.set_transform(name=mesh_name, transform=link_trimesh_pose)
@@ -79,14 +81,17 @@ class SingleSceneCollisionChecker:
         # Timing
         t_collision = time()
         if print_timing:
-            print(f"t_fk, t_collision-check (s): {t_fk - t0:0.5f},\t{t_collision - t_fk:0.5f}")
+            print(f"t_fk, t_collision-check (ms): {1000*(t_fk - t0):0.3f},\t{1000*(t_collision - t_fk):0.3f}")
         if dont_filter:
-            return is_collision, names, contacts
+            if return_contacts:
+                return is_collision, names, contacts
+            else:
+                return is_collision, names
 
         # Filter out pairs of geometries that are known a priori to be always colliding
         pairs_filtered = set()
         for name in names:
-            if not self._robot.links_cant_collide(name[0], name[1]):
+            if not self._robot.geometries_cant_collide(name[0], name[1], use_visual=self._use_visual):
                 pairs_filtered.add(name)
 
         contacts_filtered = []
@@ -95,7 +100,7 @@ class SingleSceneCollisionChecker:
             for i, contact in enumerate(contacts):
                 assert len(contact.names) == 2
                 name_pair = tuple(contact.names)
-                if not self._robot.links_cant_collide(name_pair[0], name_pair[1]):
+                if not self._robot.geometries_cant_collide(name_pair[0], name_pair[1], use_visual=self._use_visual):
                     contacts_filtered.append(contact)
                 # else:
                 #     if "box" in name_pair[0] or "box" in name_pair[1]:

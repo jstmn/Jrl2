@@ -159,16 +159,33 @@ class Robot:
                 self._collision_filtering_data = yaml.load(f, Loader=yaml.FullLoader)
 
         # Extract collision filtering data
-        self._always_colliding_links = set(
-            [
-                self.return_ordered_geometry_name_pair(link_1, link_2)
-                for link_1, link_2 in self._collision_filtering_data["collision"]["always"]
-            ]
-        )
+        self._collision_filtering_data = {
+            "collision-always": [
+                self.return_ordered_geometry_name_pair(geom_1, geom_2)
+                for geom_1, geom_2 in self._collision_filtering_data["collision"]["always"]
+            ],
+            "collision-never": [
+                self.return_ordered_geometry_name_pair(geom_1, geom_2)
+                for geom_1, geom_2 in self._collision_filtering_data["collision"]["never"]
+            ],
+            "visual-always": [
+                self.return_ordered_geometry_name_pair(geom_1, geom_2)
+                for geom_1, geom_2 in self._collision_filtering_data["visual"]["always"]
+            ],
+            "visual-never": [
+                self.return_ordered_geometry_name_pair(geom_1, geom_2)
+                for geom_1, geom_2 in self._collision_filtering_data["visual"]["never"]
+            ],
+        }
 
-    def links_cant_collide(self, link_1: str, link_2: str) -> bool:
+    def geometries_cant_collide(self, geom_1: str, geom_2: str, use_visual: bool) -> bool:
         """Returns whether two links are physically unable of colliding so long as joint limits are respected."""
-        return self.return_ordered_geometry_name_pair(link_1, link_2) in self._always_colliding_links
+        return (
+            self.return_ordered_geometry_name_pair(geom_1, geom_2)
+            in self._collision_filtering_data[f"{'visual' if use_visual else 'collision'}-always"]
+            or self.return_ordered_geometry_name_pair(geom_1, geom_2)
+            in self._collision_filtering_data[f"{'visual' if use_visual else 'collision'}-never"]
+        )
 
     @property
     def name(self) -> str:
