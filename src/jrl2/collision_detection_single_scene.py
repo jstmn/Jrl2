@@ -51,7 +51,12 @@ class SingleSceneCollisionChecker:
         self._boxes = []
 
     def check_collisions(
-        self, q_dict: dict[str, float], use_visual: bool = False, dont_filter: bool = False, print_timing: bool = False
+        self,
+        q_dict: dict[str, float],
+        use_visual: bool = False,
+        dont_filter: bool = False,
+        print_timing: bool = False,
+        return_contacts: bool = False,
     ) -> tuple[bool, set[tuple[str, str]]]:
         """Check for collisions at the given robot configuration."""
         t0 = time()
@@ -64,21 +69,39 @@ class SingleSceneCollisionChecker:
         t_fk = time()
 
         # Run collision checking
-        is_collision, names = self._collision_manager.in_collision_internal(return_names=True, return_data=False)
+        if return_contacts:
+            is_collision, names, contacts = self._collision_manager.in_collision_internal(
+                return_names=True, return_data=True
+            )
+        else:
+            is_collision, names = self._collision_manager.in_collision_internal(return_names=True, return_data=False)
 
         # Timing
         t_collision = time()
         if print_timing:
-            print(f"runtime fk, collision: {t_fk - t0},\t{t_collision - t_fk}")
+            print(f"t_fk, t_collision-check (s): {t_fk - t0:0.5f},\t{t_collision - t_fk:0.5f}")
         if dont_filter:
-            return is_collision, names
+            return is_collision, names, contacts
 
         # Filter out pairs of geometries that are known a priori to be always colliding
-        names_real = set()
+        pairs_filtered = set()
         for name in names:
             if not self._robot.links_cant_collide(name[0], name[1]):
-                names_real.add(name)
-        return len(names_real) > 0, names_real
+                pairs_filtered.add(name)
+
+        contacts_filtered = []
+        if return_contacts:
+            # print("~~~~~~~~~~~~")
+            for i, contact in enumerate(contacts):
+                assert len(contact.names) == 2
+                name_pair = tuple(contact.names)
+                if not self._robot.links_cant_collide(name_pair[0], name_pair[1]):
+                    contacts_filtered.append(contact)
+                # else:
+                #     if "box" in name_pair[0] or "box" in name_pair[1]:
+                #         print(f" {i} contact: {name_pair}")
+            return len(pairs_filtered) > 0, pairs_filtered, contacts_filtered
+        return len(pairs_filtered) > 0, pairs_filtered
 
     def add_sphere(self, center: np.ndarray, radius: float):
         world_T_center = _translation_to_SE3(center)

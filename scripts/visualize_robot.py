@@ -1,6 +1,6 @@
 import argparse
 
-from jrl2.visualization import robot_scene, idle
+from jrl2.visualization import robot_scene
 from jrl2.robots import get_robot_by_name
 from jrl2.collision_detection_single_scene import SingleSceneCollisionChecker
 
@@ -17,8 +17,7 @@ def main():
     robot = get_robot_by_name(args.robot.lower())
     q_dict = robot.midpoint_configuration
     collision_checker = SingleSceneCollisionChecker(robot)
-    scene = robot_scene(robot, collision_checker, q_dict=q_dict)
-    idle(scene)
+    robot_scene(robot, collision_checker, q_dict=q_dict, use_visual=True)
 
 
 if __name__ == "__main__":

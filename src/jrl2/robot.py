@@ -165,19 +165,10 @@ class Robot:
                 for link_1, link_2 in self._collision_filtering_data["collision"]["always"]
             ]
         )
-        self._never_colliding_links = set(
-            [
-                self.return_ordered_geometry_name_pair(link_1, link_2)
-                for link_1, link_2 in self._collision_filtering_data["collision"]["never"]
-            ]
-        )
 
     def links_cant_collide(self, link_1: str, link_2: str) -> bool:
-        """Returns whether two links are physicall unable of collliding so long as joint limits are respected."""
-        ordered_link_pair = self.return_ordered_geometry_name_pair(link_1, link_2)
-        if (ordered_link_pair) in self._never_colliding_links or ordered_link_pair in self._always_colliding_links:
-            return True
-        return False
+        """Returns whether two links are physically unable of colliding so long as joint limits are respected."""
+        return self.return_ordered_geometry_name_pair(link_1, link_2) in self._always_colliding_links
 
     @property
     def name(self) -> str:
@@ -323,12 +314,13 @@ class Robot:
                 if link_T_mesh is None:
                     link_T_mesh = np.eye(4)
                 mesh_pose = link_pose @ link_T_mesh
+                geometry = None
 
                 if geom.mesh is not None:
                     if not only_poses:
                         new_filename = self._yourdfpy_model._filename_handler(fname=geom.mesh.filename)
                         assert Path(new_filename).exists(), f"File {new_filename} does not exist"
-                        trimesh_obj = trimesh.load(
+                        geometry = trimesh.load(
                             new_filename,
                             ignore_broken=True,
                             force="mesh",
@@ -338,11 +330,11 @@ class Robot:
                     # print(f"geom.mesh.filename: {geom.mesh.filename}, name: {name}")
                 elif geom.box is not None:
                     box_count += 1
-                    trimesh_obj = trimesh.primitives.Box(geom.box.size) if not only_poses else None
+                    geometry = trimesh.primitives.Box(geom.box.size) if not only_poses else None
                     name = f"{link_name}::box_{box_count}"
                 elif geom.cylinder is not None:
                     cylinder_count += 1
-                    trimesh_obj = (
+                    geometry = (
                         trimesh.primitives.Cylinder(geom.cylinder.radius, geom.cylinder.length)
                         if not only_poses
                         else None
@@ -350,12 +342,12 @@ class Robot:
                     name = f"{link_name}::cylinder_{cylinder_count}"
                 elif geom.sphere is not None:
                     sphere_count += 1
-                    trimesh_obj = trimesh.primitives.Sphere(geom.sphere.radius) if not only_poses else None
+                    geometry = trimesh.primitives.Sphere(geom.sphere.radius) if not only_poses else None
                     name = f"{link_name}::sphere_{sphere_count}"
                 else:
                     raise ValueError(f"Link {link_name} has an unsupported geometry. Geometry: {geom}")
 
-                link_meshes[link_name].append((name, trimesh_obj, mesh_pose))
+                link_meshes[link_name].append((name, geometry, mesh_pose))
         return link_meshes
 
     def __str__(self):

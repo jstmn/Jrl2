@@ -93,5 +93,7 @@ if __name__ == "__main__":
     parser.add_argument("--n", type=int, required=True, help="The number of samples to generate")
     args = parser.parse_args()
 
+    assert False, "need to add panda_leftfinger::box_4 and panda_rightfinger::box_4"
+
     robot = get_robot_by_name(args.robot.lower())
     main(robot, args.n)

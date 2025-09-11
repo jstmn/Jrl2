@@ -1,8 +1,20 @@
+import socket
+
 from jrl2.robot import Robot, NP_Q_DICT_TYPE
 import viser
 from scipy.spatial.transform import Rotation
-from time import sleep
 from jrl2.collision_detection_single_scene import SingleSceneCollisionChecker
+import numpy as np
+
+np.set_printoptions(precision=4, suppress=True)
+
+VISER_PORT = 8080
+
+
+def assert_no_existing_server():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        if s.connect_ex(("localhost", VISER_PORT)) == 0:
+            raise RuntimeError(f"Port {VISER_PORT} is already in use. View processes with 'lsof -i :{VISER_PORT}'")
 
 
 def robot_scene(
@@ -10,15 +22,13 @@ def robot_scene(
     collision_checker: SingleSceneCollisionChecker,
     q_dict: NP_Q_DICT_TYPE | None = None,
     show_frames: bool = False,
-) -> viser.ViserServer:
+    use_visual: bool = True,
+) -> None:
     assert show_frames is False, "There's a bug with the frames, they are not being updated correctly"
-    server = viser.ViserServer()
+    assert_no_existing_server()
+    server = viser.ViserServer(port=VISER_PORT)
     if q_dict is None:
         q_dict = robot.midpoint_configuration
-
-    import numpy as np
-
-    np.set_printoptions(precision=4, suppress=True)
 
     # Set the camera view to a good position + angle
     def client_connect_callback(client: viser.ClientHandle):
@@ -40,7 +50,7 @@ def robot_scene(
     def update_configuration(q_dict_in: NP_Q_DICT_TYPE):
         nonlocal meshes_added
         link_mesh_poses = robot.get_all_link_geometry_poses_non_batched(
-            q_dict_in, use_visual=True, only_poses=True if meshes_added else False
+            q_dict_in, use_visual=use_visual, only_poses=True if meshes_added else False
         )
         for _, link_trimesh_list in link_mesh_poses.items():
             for mesh_name, link_trimesh_object, link_trimesh_pose in link_trimesh_list:
@@ -49,11 +59,20 @@ def robot_scene(
                 position = link_trimesh_pose[:3, 3]
                 name = f"/{mesh_name}"
                 frame_name = name + "/frame"
-                print(name, link_trimesh_object)
                 if not meshes_added:
-                    mesh_handles[name] = server.add_mesh_trimesh(
-                        name=name, mesh=link_trimesh_object, position=position, wxyz=wxyz
-                    )
+                    if use_visual:
+                        mesh_handles[name] = server.add_mesh_trimesh(
+                            name=name, mesh=link_trimesh_object, position=position, wxyz=wxyz
+                        )
+                    else:
+                        mesh_handles[name] = server.add_mesh_simple(
+                            name=name,
+                            vertices=link_trimesh_object.vertices,
+                            faces=link_trimesh_object.faces,
+                            position=position,
+                            opacity=0.75,
+                            wxyz=wxyz,
+                        )
                     if show_frames:
                         mesh_handles[frame_name] = server.add_frame(
                             name=frame_name, position=position, wxyz=wxyz, axes_length=0.075, axes_radius=0.005
@@ -65,14 +84,6 @@ def robot_scene(
                         mesh_handles[frame_name].position = position
                         mesh_handles[frame_name].wxyz = wxyz
 
-        is_collision, names = collision_checker.check_collisions(q_dict_in)
-        print("------------------------")
-        for name in names:
-            print("name: ", name)
-        print("------------")
-        # for contact in contacts:
-        #     print("contact: ", contact.names)
-        print("------------------------")
         meshes_added = True
 
     update_configuration(q_dict)
@@ -99,9 +110,33 @@ def robot_scene(
     print("Open your browser to http://localhost:8080")
     print("Press Ctrl+C to exit")
 
-    return server
-
-
-def idle(server: viser.ViserServer):
+    counter = 0
+    icosphere_handles = []
     while True:
-        sleep(2.0)
+        _, names, contacts = collision_checker.check_collisions(
+            q_dict, return_contacts=True, print_timing=counter % 500 == 0
+        )
+        counter += 1
+        if len(names) > 0:
+            print("------------")
+            print(len(names), len(contacts))
+            for name in names:
+                print("name: ", name)
+
+        for handle in icosphere_handles:
+            handle.visible = False
+
+        # for i, contact in enumerate(contacts):
+        while len(contacts) > len(icosphere_handles):
+            icosphere_handles.append(
+                server.scene.add_icosphere(
+                    name=f"contact_{len(icosphere_handles)}",
+                    position=contacts[len(icosphere_handles)].point,
+                    radius=0.005,
+                    color=[1.0, 0.0, 0.0],
+                )
+            )
+
+        for i, contact in enumerate(contacts):
+            icosphere_handles[i].position = contact.point
+            icosphere_handles[i].visible = True
