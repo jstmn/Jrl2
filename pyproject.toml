@@ -9,11 +9,17 @@ description = "Jeremy's Robotics Library, v2"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+   "black>=25.1.0",
+   "coal>=3.0.1",
+   "ipdb>=0.13.13",
+   "kinpy>=0.0.5",
    "pytest>=8.4.1",
+   "python-fcl>=0.7.0.8",
    "robot-descriptions>=1.20.0",
    "ruff>=0.9.2",
    "torch>=2.5.1",
    "tqdm>=4.67.1",
    "trimesh>=4.8.0",
+   "viser>=1.0.6",
    "yourdfpy>=0.0.58",
 ]
