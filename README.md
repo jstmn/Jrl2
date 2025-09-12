@@ -1,18 +1,19 @@
 # Jrl2
-This is an updated version of [Jrl](https://github.com/jstmn) with the following changes:
-* Visualization with [Viser](https://viser.studio/main/)
+
+<figure>
+  <img src="media/jrl2-2025-09-11_19.42.35.gif" width="600">
+  <figcaption>The Panda robot visualized with non-batched (single scene) collision checking running.</figcaption>
+</figure>
+
+
+
+**This is an updated version of [Jrl](https://github.com/jstmn) with the following changes:**
+* Visualization with [Viser](https://viser.studio/main/) rather than []
 * Robot urdfs from [robot-descriptions](https://github.com/robot-descriptions/robot_descriptions.py)
-* Single environment collision checks using [coal](https://github.com/coal-library/coal). This will allow for checking for collisions between cylinders, spheres, ellipsoids, cuboids, pointclouds, and potentially other meshes in the environment with the robots collision meshes. This will remove the projects Klampt dependency. This will be in addition to the batched collision checking available as well.
+* Non-batched (single scene) collision checking using [trimesh](https://trimesh.org/) and [fcl](https://github.com/BerkeleyAutomation/python-fcl). The supported collision shapes are: TriangleP, Box, Sphere, Ellipsoid, Capsule, Cone, Convex, Cylinder, Half-Space, Plane, Mesh, OcTree. Note that the (coal)[https://github.com/coal-library/coal] library allows for adding a margin between objects. This would be quite useful for this package.
 * Batched collision checking will be limited to only sphere-capsule, sphere-cuboid, sphere-sphere collisions. These checks can all be performed analytically (i.e. no optimization required) which will make them very fast. JIT compiling can be used here as well.
-* Numpy will be completely removed. This will be a (nearly) entirely pytorch library.
-* 3D math operations using a thirdparty library, such as [PyTorch3d](https://pytorch3d.org/) or [RoMa](https://naver.github.io/roma/). Alternatively, the 3d operations will be cleaned up, standardized, and be rewritten using JIT compilation. This can be done with the [warp](https://github.com/NVIDIA/warp) or [torchdynamo](https://github.com/pytorch/torchdynamo)
-* The API for specifying which portion of the kinematic tree an operation should perform on will be reformatted. Currently, this is fixed in advance by specifying a base frame and end effector frame in the `Robot` class initializer. This is severly limiting however, because often times you may want the transform from different frames to one another. Concretely, this means that Forward/Inverse Kinematics is performed for one fixed kinematic chain per `Robot` subclass. There are two options of how to rewrite this. 
-  1. For the first, all APIs will accept a start and end link. A search will be performed to find the connecting path between these two, and that portion of the kinmatic chain will be used in the function. 
-  2. For the second, joint groups will need to be created ahead of time and saved to the class. This is the same as how MoveIt! works - there are predefined planning groups, you use one per planning query. 
-
- I think the first approach - everything requires a base and target frame is more elegant and intuitive. I'm not aware of any clear downsides to that approach. A default base and end effector frame should probably be set.
-* A new visualization library will be used. Options include [trimesh](https://github.com/mikedh/trimesh), [Pybullet](Pybullet), [RoboMeshCat/Meshcat](https://github.com/petrikvladimir/RoboMeshCat), [scikit-robot](https://github.com/iory/scikit-robot). Alternatively it would be a fun exercise to write my own or extend a current one like [kiss3d](kiss3d). This will remove the klampt dep.
-
+* 3D math operations using a thirdparty library, such as [PyTorch3d](https://pytorch3d.org/) or [RoMa](https://naver.github.io/roma/) rather than self written functions. Alternatively, the 3d operations will be cleaned up, standardized, and be rewritten using JIT compilation. This can be done with the [warp](https://github.com/NVIDIA/warp) or [torchdynamo](https://github.com/pytorch/torchdynamo)
+* The API for specifying which portion of the kinematic tree an operation should perform on will be reformatted. Currently, this is fixed in advance by specifying a base frame and end effector frame in the `Robot` class initializer. This is severly limiting however, because often times you may want the transform from different frames to one another. Instead, joint configurations will be provided via a dictuanary from joint name to joint angle. This should alleviate all uncertianty.
 
 
 # Installation
@@ -30,7 +31,7 @@ Creating and working on Python projects, i.e., with a pyproject.toml.
 - `uv remove`: Remove a dependency from the project.
 - `uv sync`: Sync the project's dependencies with the environment.
 - `uv lock`: Create a lockfile for the project's dependencies.
-- `uv run`: Run a command in the project environment.
+- `uv run ...`: Run a command in the project environment. (Examples: `uv run black`, `uv run pytest tests/`)
 - `uv tree`: View the dependency tree for the project.
 
 

@@ -102,6 +102,8 @@ class Robot:
         yourdfpy_robot: YourdfpyRobot | None = None,
         always_colliding_links: list[tuple[str, str]] = [],
         never_colliding_links: list[tuple[str, str]] = [],
+        nominal_q: NP_Q_DICT_TYPE | None = None,
+        additional_ignored_geoms: dict[str, list[tuple[str, str]]] = {},
     ):
         """Generate a robot class from a URDF file.
 
@@ -117,6 +119,10 @@ class Robot:
                                                                       actually colliding.
             never_colliding_links (list[tuple[str, str]], optional): A list of links on the robot that are will never
                                                                      collide.
+            nominal_q (NP_Q_DICT_TYPE | None, optional): The nominal joint positions of the robot. If None, the robot
+                                                          will be initialized to the midpoint configuration.
+            additional_ignored_geoms (dict[str, list[tuple[str, str]]], optional): A dictionary of additional ignored
+                                                                                   geometry pairs.
         """
         if yourdfpy_robot is None:
             assert "_description" in name, f"Name {name} should contain _description"
@@ -161,6 +167,15 @@ class Robot:
                     for geom_1, geom_2 in self._collision_filtering_data["visual"]["never"]
                 ],
             }
+            for c_or_v in ["collision", "visual"]:
+                if c_or_v not in additional_ignored_geoms:
+                    continue
+                if "always" in additional_ignored_geoms[c_or_v]:
+                    self._collision_filtering_data[f"{c_or_v}-always"].extend(
+                        additional_ignored_geoms[c_or_v]["always"]
+                    )
+                if "never" in additional_ignored_geoms[c_or_v]:
+                    self._collision_filtering_data[f"{c_or_v}-never"].extend(additional_ignored_geoms[c_or_v]["never"])
 
         else:
             self._name = name.replace("_description", "")
@@ -173,7 +188,6 @@ class Robot:
                 "visual-never": [],
             }
 
-
         assert isinstance(
             self._yourdfpy_model, YourdfpyURDF
         ), f"Expected YourdfpyURDF, got {type(self._yourdfpy_model)}"
@@ -185,7 +199,10 @@ class Robot:
         # self._successor_links maps a Link to a [(Link[parent], Joint, Link[child]), ...] tuple for every link.
         self._successor_links: dict[str, list[tuple[Link, Joint, Link]]] = _get_successor_links(self._urdfpy_robot)
 
-        
+        self._nominal_q = nominal_q
+        if self._nominal_q is None:
+            self._nominal_q = self.midpoint_configuration
+
     def geometries_cant_collide(self, geom_1: str, geom_2: str, use_visual: bool) -> bool:
         """Returns whether two links are physically unable of colliding so long as joint limits are respected."""
         return (
@@ -196,8 +213,7 @@ class Robot:
         )
 
     def assert_valid_configuration(self, q_dict: NP_Q_DICT_TYPE):
-        """Assert that a configuration is valid.
-        """
+        """Assert that a configuration is valid."""
         assert len(q_dict) == self.num_actuators
         assert set(q_dict.keys()) == set(self.actuated_joint_names)
         for joint_name, joint_angle in q_dict.items():
@@ -208,6 +224,10 @@ class Robot:
     @property
     def name(self) -> str:
         return self._name
+
+    @property
+    def nominal_q(self) -> NP_Q_DICT_TYPE:
+        return self._nominal_q
 
     @property
     def actuated_joints(self) -> list[Joint]:

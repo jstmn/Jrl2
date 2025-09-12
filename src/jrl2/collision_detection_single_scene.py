@@ -1,7 +1,7 @@
 import numpy as np
 from time import time
-from dataclasses import dataclass
 
+from trimesh.primitives import Sphere, Box
 import trimesh
 
 from jrl2.robot import Robot
@@ -13,21 +13,12 @@ def _translation_to_SE3(translation: np.ndarray) -> np.ndarray:
     return se3
 
 
-@dataclass
-class Sphere:
-    world_T_center: np.ndarray
-    radius: float
-    name: str
-
-
 class SingleSceneCollisionChecker:
     def __init__(self, robot: Robot, use_visual: bool):
         self._robot = robot
-        self._robots = []
-        self._spheres = []
-        self._capsules = []
-        self._boxes = []
         self._use_visual = use_visual
+        self._spheres: list[Sphere] = []
+        self._boxes: list[Box] = []
         self._collision_manager = trimesh.collision.CollisionManager()
 
         # Add meshes to scene
@@ -42,16 +33,13 @@ class SingleSceneCollisionChecker:
                     transform=link_trimesh_pose,
                 )
 
-    def clear_scene(self):
-        for sphere in self._spheres:
-            self._collision_manager.remove_object(sphere.name)
-        for capsule in self._capsules:
-            self._collision_manager.remove_object(capsule.name)
-        for box in self._boxes:
-            self._collision_manager.remove_object(box.name)
-        self._spheres = []
-        self._capsules = []
-        self._boxes = []
+    @property
+    def spheres(self) -> list[Sphere]:
+        return self._spheres
+
+    @property
+    def boxes(self) -> list[Box]:
+        return self._boxes
 
     def check_collisions(
         self,
@@ -107,12 +95,20 @@ class SingleSceneCollisionChecker:
             return len(pairs_filtered) > 0, pairs_filtered, contacts_filtered
         return len(pairs_filtered) > 0, pairs_filtered
 
-    def add_sphere(self, center: np.ndarray, radius: float):
-        world_T_center = _translation_to_SE3(center)
+    def add_sphere(self, sphere: Sphere) -> str:
         sphere_name = f"sphere_{len(self._spheres)}"
-        self._spheres.append(Sphere(world_T_center=world_T_center, radius=radius, name=sphere_name))
-        trimesh_sphere = trimesh.primitives.Sphere(radius=radius, center=center)
+        self._spheres.append(sphere)
         self._collision_manager.add_object(
-            mesh=trimesh_sphere,
+            mesh=sphere,
             name=sphere_name,
         )
+        return sphere_name
+
+    def add_box(self, box: Box) -> str:
+        box_name = f"box_{len(self._boxes)}"
+        self._boxes.append(box)
+        self._collision_manager.add_object(
+            mesh=box,
+            name=box_name,
+        )
+        return box_name

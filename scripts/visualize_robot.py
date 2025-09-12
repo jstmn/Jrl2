@@ -1,5 +1,8 @@
 import argparse
 
+import numpy as np
+from trimesh.primitives import Sphere, Box
+
 from jrl2.visualization import robot_scene
 from jrl2.robots import get_robot_by_name
 from jrl2.collision_detection_single_scene import SingleSceneCollisionChecker
@@ -7,6 +10,23 @@ from jrl2.collision_detection_single_scene import SingleSceneCollisionChecker
 """
 uv run scripts/visualize_robot.py --robot panda --use_visual
 """
+
+
+def _get_translated_pose(offset: np.ndarray) -> np.ndarray:
+    pose = np.eye(4)
+    pose[:3, 3] = offset
+    return pose
+
+
+OBSTACLES = {
+    "spheres": [
+        Sphere(center=np.array([0.5, 0, 0.25]), radius=0.125),
+        Sphere(center=np.array([0.25, 0.5, 0.25]), radius=0.1),
+    ],
+    "boxes": [
+        Box(extents=(0.25, 0.25, 0.05), transform=_get_translated_pose(np.array([0.25, -0.4, 0.5]))),
+    ],
+}
 
 
 def main():
@@ -20,9 +40,16 @@ def main():
     assert args.use_visual or args.use_collision, "Must use either visual or collision geometries"
 
     robot = get_robot_by_name(args.robot.lower())
-    q_dict = robot.midpoint_configuration
     collision_checker = SingleSceneCollisionChecker(robot, use_visual=args.use_visual)
-    robot_scene(robot, collision_checker, q_dict=q_dict, use_visual=args.use_visual)
+
+    # Add obstacles to the scene
+    for obs in OBSTACLES["spheres"]:
+        collision_checker.add_sphere(obs)
+    for obs in OBSTACLES["boxes"]:
+        collision_checker.add_box(obs)
+
+    # Visualize the robot
+    robot_scene(robot, collision_checker, q_dict=robot.nominal_q, use_visual=args.use_visual)
 
 
 if __name__ == "__main__":
