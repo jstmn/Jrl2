@@ -1,7 +1,7 @@
 # Jrl2
 
 <figure>
-  <img src="media/jrl2-2025-09-11_19.42.35.gif" width="600">
+  <img src="media/hero_gif.gif" width="600">
   <figcaption>The Panda robot visualized with non-batched (single scene) collision checking running.</figcaption>
 </figure>
 
@@ -19,7 +19,7 @@
 # Installation
 ``` bash
 git clone https://github.com/jstmn/Jrl2.git && cd Jrl2/
-uv sync
+uv sync --no-dev         # Remove '--no-dev' to install with development dependencies: `uv sync`
 uv pip install -e .
 ```
 

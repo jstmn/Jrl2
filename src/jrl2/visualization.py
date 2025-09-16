@@ -1,4 +1,5 @@
 import socket
+from typing import Callable
 
 import viser
 from scipy.spatial.transform import Rotation
@@ -27,12 +28,14 @@ def _position_from_transform(transform: np.ndarray) -> np.ndarray:
     return transform[:3, 3]
 
 
-def robot_scene(
+def visualize_scene(
     robot: Robot,
     collision_checker: SingleSceneCollisionChecker,
     q_dict: NP_Q_DICT_TYPE | None = None,
+    get_q_dict: Callable[[], NP_Q_DICT_TYPE] | None = None,
     show_frames: bool = False,
     use_visual: bool = True,
+    q_range_padding: float | None = None,
 ) -> None:
     assert show_frames is False, "There's a bug with the frames, they are not being updated correctly"
     assert_no_existing_server()
@@ -56,10 +59,12 @@ def robot_scene(
     # Add the grid and robot to the scene
     server.add_grid("/grid", width=5.0, height=5.0)
     meshes_added = False
-    mesh_handles = {}
+    mesh_handles_default = {}
+    mesh_handles_collision = {}
     obstacle_color = [1.0, 0.85, 0.0]
     obstacle_opacity = 0.85
     robot_link_color = [1.0, 1.0, 1.0]
+    robot_link_color_collision = [1.0, 0.0, 0.0]
     robot_link_opacity = 0.95
 
     # Add the obstacles to the scene
@@ -92,34 +97,43 @@ def robot_scene(
                 # scalar_first order is (w, x, y, z)
                 wxyz = _wxyz_from_transform(link_trimesh_pose)
                 position = _position_from_transform(link_trimesh_pose)
-                name = f"/{mesh_name}"
-                frame_name = name + "/frame"
-                if not meshes_added:
-                    if use_visual:
-                        mesh_handles[name] = server.add_mesh_trimesh(
-                            name=name, mesh=link_trimesh_object, position=position, wxyz=wxyz
-                        )
-                    else:
-                        mesh_handles[name] = server.add_mesh_simple(
-                            name=name,
-                            vertices=link_trimesh_object.vertices,
-                            faces=link_trimesh_object.faces,
-                            position=position,
-                            opacity=robot_link_opacity,
-                            color=robot_link_color,
-                            wxyz=wxyz,
-                        )
-                    if show_frames:
-                        mesh_handles[frame_name] = server.add_frame(
-                            name=frame_name, position=position, wxyz=wxyz, axes_length=0.075, axes_radius=0.005
-                        )
-                else:
-                    mesh_handles[name].position = position
-                    mesh_handles[name].wxyz = wxyz
-                    if show_frames:
-                        mesh_handles[frame_name].position = position
-                        mesh_handles[frame_name].wxyz = wxyz
 
+                for extension, mesh_handles, mesh_color in zip(
+                    ["", "__col"],
+                    [mesh_handles_default, mesh_handles_collision],
+                    [robot_link_color, robot_link_color_collision],
+                ):
+                    name = f"/{mesh_name}{extension}"
+                    frame_name = name + "/frame__" + extension
+                    if not meshes_added:
+                        if use_visual:
+                            mesh_handles[name] = server.add_mesh_trimesh(
+                                name=name, mesh=link_trimesh_object, position=position, wxyz=wxyz
+                            )
+                        else:
+                            mesh_handles[name] = server.add_mesh_simple(
+                                name=name,
+                                vertices=link_trimesh_object.vertices,
+                                faces=link_trimesh_object.faces,
+                                position=position,
+                                opacity=robot_link_opacity,
+                                color=mesh_color,
+                                wxyz=wxyz,
+                            )
+                        if show_frames:
+                            mesh_handles[frame_name] = server.add_frame(
+                                name=frame_name, position=position, wxyz=wxyz, axes_length=0.075, axes_radius=0.005
+                            )
+                    else:
+                        mesh_handles[name].position = position
+                        mesh_handles[name].wxyz = wxyz
+                        if show_frames:
+                            mesh_handles[frame_name].position = position
+                            mesh_handles[frame_name].wxyz = wxyz
+
+        if not meshes_added:
+            for _, mesh_handle in mesh_handles_collision.items():
+                mesh_handle.visible = False
         meshes_added = True
 
     update_configuration(q_dict)
@@ -149,45 +163,45 @@ def robot_scene(
     #
     counter = 0
     icosphere_handles = []
-    # last_geoms_in_contact = set()
+    last_geoms_in_contact = set()
 
     while True:
+        if get_q_dict is not None:
+            q_dict = get_q_dict()
+
         _, colliding_geom_names, contacts = collision_checker.check_collisions(
-            q_dict, return_contacts=True, print_timing=counter % 500 == 0
+            q_dict, return_contacts=True, print_timing=counter % 500 == 0, q_range_padding=q_range_padding
         )
         counter += 1
-        if len(colliding_geom_names) > 0:
-            print("------------")
-            print(len(colliding_geom_names), len(contacts))
-            for geom_pair in colliding_geom_names:
-                print("geom_pair: ", geom_pair)
+        # if len(colliding_geom_names) > 0:
+        #     print("------------")
+        #     print(len(colliding_geom_names), len(contacts))
+        #     for geom_pair in colliding_geom_names:
+        #         print("geom_pair: ", geom_pair)
 
         for handle in icosphere_handles:
             handle.visible = False
 
-        # TODO(@jstmn): for some reason the meshes become black when the color is updated. I'm not sure why
-        # I was unable to successfully debug.
-        # if use_collision:
-        #     # Update robot link colors based on collision status
-        #     current_geoms_in_contact = set()
-        #     for name_pair in colliding_geom_names:
-        #         current_geoms_in_contact.add(name_pair[0])
-        #         current_geoms_in_contact.add(name_pair[1])
+        if use_collision:
+            # Update robot link visibility based on collision status
+            current_geoms_in_contact = set()
+            for name_pair in colliding_geom_names:
+                current_geoms_in_contact.add(name_pair[0])
+                current_geoms_in_contact.add(name_pair[1])
 
-        #     # Reset colors for geoms that are no longer in contact
-        #     for geom_name in last_geoms_in_contact - current_geoms_in_contact:
-        #         mesh_handle_name = f"/{geom_name}"
-        #         if mesh_handle_name in mesh_handles:
-        #             print("resetting", mesh_handle_name, " to ", robot_link_color)
-        #             mesh_handles[mesh_handle_name].color = robot_link_color
+            # Hide geoms that are no longer in contact
+            for geom_name in last_geoms_in_contact - current_geoms_in_contact:
+                mesh_handle_name = f"/{geom_name}__col"
+                if mesh_handle_name in mesh_handles_collision:
+                    mesh_handles_collision[mesh_handle_name].visible = False
 
-        #     # Set red color for geoms currently in contact
-        #     for geom_name in current_geoms_in_contact:
-        #         mesh_handle_name = f"/{geom_name}"
-        #         if mesh_handle_name in mesh_handles:
-        #             print("(contact) setting", mesh_handle_name, " to ", [1.0, 0.0, 0.0])
-        #             mesh_handles[mesh_handle_name].color = [1.0, 0.0, 0.0]
-        #     last_geoms_in_contact = current_geoms_in_contact
+            # Show geoms currently in contact
+            for geom_name in current_geoms_in_contact:
+                mesh_handle_name = f"/{geom_name}__col"
+                if mesh_handle_name in mesh_handles_collision:
+                    mesh_handles_collision[mesh_handle_name].visible = True
+
+            last_geoms_in_contact = current_geoms_in_contact
 
         # for i, contact in enumerate(contacts):
         while len(contacts) > len(icosphere_handles):

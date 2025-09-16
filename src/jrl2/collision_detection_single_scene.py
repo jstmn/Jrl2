@@ -47,9 +47,10 @@ class SingleSceneCollisionChecker:
         dont_filter: bool = False,
         print_timing: bool = False,
         return_contacts: bool = False,
+        q_range_padding: float | None = None,
     ) -> tuple[bool, set[tuple[str, str]]]:
         """Check for collisions at the given robot configuration."""
-        self._robot.assert_valid_configuration(q_dict)
+        self._robot.assert_valid_configuration(q_dict, padding=q_range_padding)
         t0 = time()
 
         # Run FK

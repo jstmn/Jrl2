@@ -212,12 +212,20 @@ class Robot:
             in self._collision_filtering_data[f"{'visual' if use_visual else 'collision'}-never"]
         )
 
-    def assert_valid_configuration(self, q_dict: NP_Q_DICT_TYPE):
-        """Assert that a configuration is valid."""
+    def assert_valid_configuration(self, q_dict: NP_Q_DICT_TYPE, padding: float | None = None):
+        """Assert that a configuration is valid. Note that on hardware, measured joint angles will occasionally be
+        slightly outside their bounds. On the Emika Panda for example, the finger joints can measure 0.045 cm, which
+        is beyond their specified maximum limit of 0.04 cm.
+        """
         assert len(q_dict) == self.num_actuators
         assert set(q_dict.keys()) == set(self.actuated_joint_names)
         for joint_name, joint_angle in q_dict.items():
-            lims = (self._joints_by_name[joint_name].limit.lower, self._joints_by_name[joint_name].limit.upper)
+            low = self._joints_by_name[joint_name].limit.lower
+            uow = self._joints_by_name[joint_name].limit.upper
+            if padding is not None:
+                low -= padding
+                uow += padding
+            lims = (l, u)
             assert joint_angle >= lims[0], f"Angle {joint_name} = {joint_angle:0.4f} not in {lims}"
             assert joint_angle <= lims[1], f"Angle {joint_name} = {joint_angle:0.4f} not in {lims}"
 

@@ -3,12 +3,13 @@ import argparse
 import numpy as np
 from trimesh.primitives import Sphere, Box
 
-from jrl2.visualization import robot_scene
+from jrl2.visualization import visualize_scene
 from jrl2.robots import get_robot_by_name
 from jrl2.collision_detection_single_scene import SingleSceneCollisionChecker
 
 """
 uv run scripts/visualize_robot.py --robot panda --use_visual
+uv run scripts/visualize_robot.py --robot panda --use_collision
 """
 
 
@@ -37,7 +38,9 @@ def main():
     args = parser.parse_args()
 
     assert not (args.use_visual and args.use_collision), "Cannot use both visual and collision geometries"
-    assert args.use_visual or args.use_collision, "Must use either visual or collision geometries"
+    assert (
+        args.use_visual or args.use_collision
+    ), "Must use either visual or collision geometries: --use_collision or --use_visual"
 
     robot = get_robot_by_name(args.robot.lower())
     collision_checker = SingleSceneCollisionChecker(robot, use_visual=args.use_visual)
@@ -49,7 +52,7 @@ def main():
         collision_checker.add_box(obs)
 
     # Visualize the robot
-    robot_scene(robot, collision_checker, q_dict=robot.nominal_q, use_visual=args.use_visual)
+    visualize_scene(robot, collision_checker, q_dict=robot.nominal_q, use_visual=args.use_visual)
 
 
 if __name__ == "__main__":
