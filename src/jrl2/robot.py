@@ -220,14 +220,13 @@ class Robot:
         assert len(q_dict) == self.num_actuators
         assert set(q_dict.keys()) == set(self.actuated_joint_names)
         for joint_name, joint_angle in q_dict.items():
-            low = self._joints_by_name[joint_name].limit.lower
-            uow = self._joints_by_name[joint_name].limit.upper
+            lower = self._joints_by_name[joint_name].limit.lower
+            upper = self._joints_by_name[joint_name].limit.upper
             if padding is not None:
-                low -= padding
-                uow += padding
-            lims = (l, u)
-            assert joint_angle >= lims[0], f"Angle {joint_name} = {joint_angle:0.4f} not in {lims}"
-            assert joint_angle <= lims[1], f"Angle {joint_name} = {joint_angle:0.4f} not in {lims}"
+                lower -= padding
+                upper += padding
+            assert joint_angle >= lower, f"Angle {joint_name} = {joint_angle:0.4f} not in {(lower, upper)}"
+            assert joint_angle <= upper, f"Angle {joint_name} = {joint_angle:0.4f} not in {(lower, upper)}"
 
     @property
     def name(self) -> str:

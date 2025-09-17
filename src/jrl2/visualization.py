@@ -5,6 +5,7 @@ import viser
 from scipy.spatial.transform import Rotation
 import numpy as np
 from time import sleep
+import open3d as o3d
 
 from jrl2.collision_detection_single_scene import SingleSceneCollisionChecker
 from jrl2.robot import Robot, NP_Q_DICT_TYPE
@@ -28,21 +29,29 @@ def _position_from_transform(transform: np.ndarray) -> np.ndarray:
     return transform[:3, 3]
 
 
+def _pprint(q_dict: NP_Q_DICT_TYPE):
+    print("{", end="")
+    for k, v in q_dict.items():
+        print(f"{k}: {v:0.4f}", end=", ")
+    print("}")
+
+
 def visualize_scene(
     robot: Robot,
     collision_checker: SingleSceneCollisionChecker,
     q_dict: NP_Q_DICT_TYPE | None = None,
     get_q_dict: Callable[[], NP_Q_DICT_TYPE] | None = None,
+    get_pointclouds: Callable[[], dict[str, o3d.geometry.PointCloud]] | None = None,
     show_frames: bool = False,
     use_visual: bool = True,
     q_range_padding: float | None = None,
+    visualize_collisions: bool = True,
 ) -> None:
     assert show_frames is False, "There's a bug with the frames, they are not being updated correctly"
     assert_no_existing_server()
     server = viser.ViserServer(port=VISER_PORT)
     if q_dict is None:
         q_dict = robot.nominal_q
-    use_collision = not use_visual
 
     # Set the camera view to a good position + angle
     def client_connect_callback(client: viser.ClientHandle):
@@ -62,30 +71,46 @@ def visualize_scene(
     mesh_handles_default = {}
     mesh_handles_collision = {}
     obstacle_color = [1.0, 0.85, 0.0]
+    obstacle_color_collision = [1.0, 0.1, 0.0]
     obstacle_opacity = 0.85
     robot_link_color = [1.0, 1.0, 1.0]
     robot_link_color_collision = [1.0, 0.0, 0.0]
     robot_link_opacity = 0.95
+    colliding_extension = "__col"
 
     # Add the obstacles to the scene
     for i, sphere in enumerate(collision_checker.spheres):
         name = f"/sphere_{i}"
-        server.add_icosphere(
-            name=name,
-            position=_position_from_transform(sphere.transform),
-            radius=sphere.primitive.radius,
-            opacity=obstacle_opacity,
-            color=obstacle_color,
-        )
+        for ext, color, dict_ in zip(
+            ["", colliding_extension],
+            [obstacle_color, obstacle_color_collision],
+            [mesh_handles_default, mesh_handles_collision],
+        ):
+            if "col" in ext:
+                dict_[f"{name}{ext}"] = server.add_icosphere(
+                    name=f"{name}{ext}",
+                    position=_position_from_transform(sphere.transform),
+                    radius=sphere.primitive.radius,
+                    opacity=obstacle_opacity,
+                    color=color,
+                )
+
     for i, box in enumerate(collision_checker.boxes):
         name = f"/box_{i}"
-        server.add_mesh_simple(
-            name=name,
-            vertices=box.vertices,
-            faces=box.faces,
-            opacity=obstacle_opacity,
-            color=obstacle_color,
-        )
+        for ext, color, dict_ in zip(
+            ["", colliding_extension],
+            [obstacle_color, obstacle_color_collision],
+            [mesh_handles_default, mesh_handles_collision],
+        ):
+            dict_[f"{name}{ext}"] = server.add_mesh_simple(
+                name=f"{name}{ext}",
+                vertices=box.vertices,
+                faces=box.faces,
+                opacity=obstacle_opacity,
+                color=color,
+            )
+
+    # def get_mesh_handle(is_colliding: bool, geom_name: str):
 
     def update_configuration(q_dict_in: NP_Q_DICT_TYPE):
         nonlocal meshes_added
@@ -98,20 +123,22 @@ def visualize_scene(
                 wxyz = _wxyz_from_transform(link_trimesh_pose)
                 position = _position_from_transform(link_trimesh_pose)
 
-                for extension, mesh_handles, mesh_color in zip(
-                    ["", "__col"],
+                for extension, mesh_dict, mesh_color in zip(
+                    ["", colliding_extension],
                     [mesh_handles_default, mesh_handles_collision],
                     [robot_link_color, robot_link_color_collision],
                 ):
                     name = f"/{mesh_name}{extension}"
-                    frame_name = name + "/frame__" + extension
                     if not meshes_added:
-                        if use_visual:
-                            mesh_handles[name] = server.add_mesh_trimesh(
+                        if use_visual and "col" not in extension:
+                            mesh_dict[name] = server.add_mesh_trimesh(
                                 name=name, mesh=link_trimesh_object, position=position, wxyz=wxyz
                             )
+                            print(f"Added mesh with extension={extension}: {name}")
                         else:
-                            mesh_handles[name] = server.add_mesh_simple(
+                            # collision mesh, or the mesh_simple variant for the visual mesh
+                            print(f"Added mesh with extension={extension}: {name}")
+                            mesh_dict[name] = server.add_mesh_simple(
                                 name=name,
                                 vertices=link_trimesh_object.vertices,
                                 faces=link_trimesh_object.faces,
@@ -120,16 +147,9 @@ def visualize_scene(
                                 color=mesh_color,
                                 wxyz=wxyz,
                             )
-                        if show_frames:
-                            mesh_handles[frame_name] = server.add_frame(
-                                name=frame_name, position=position, wxyz=wxyz, axes_length=0.075, axes_radius=0.005
-                            )
                     else:
-                        mesh_handles[name].position = position
-                        mesh_handles[name].wxyz = wxyz
-                        if show_frames:
-                            mesh_handles[frame_name].position = position
-                            mesh_handles[frame_name].wxyz = wxyz
+                        mesh_dict[name].position = position
+                        mesh_dict[name].wxyz = wxyz
 
         if not meshes_added:
             for _, mesh_handle in mesh_handles_collision.items():
@@ -168,53 +188,60 @@ def visualize_scene(
     while True:
         if get_q_dict is not None:
             q_dict = get_q_dict()
+            update_configuration(q_dict)
 
-        _, colliding_geom_names, contacts = collision_checker.check_collisions(
-            q_dict, return_contacts=True, print_timing=counter % 500 == 0, q_range_padding=q_range_padding
-        )
-        counter += 1
-        # if len(colliding_geom_names) > 0:
-        #     print("------------")
-        #     print(len(colliding_geom_names), len(contacts))
-        #     for geom_pair in colliding_geom_names:
-        #         print("geom_pair: ", geom_pair)
+        if visualize_collisions:
+            _, colliding_geom_names, contacts = collision_checker.check_collisions(
+                q_dict, return_contacts=True, print_timing=counter % 500 == 0, q_range_padding=q_range_padding
+            )
+            counter += 1
+            # if len(colliding_geom_names) > 0:
+            #     print("------------")
+            #     print(len(colliding_geom_names), len(contacts))
+            #     for geom_pair in colliding_geom_names:
+            #         print("geom_pair: ", geom_pair)
 
-        for handle in icosphere_handles:
-            handle.visible = False
+            for handle in icosphere_handles:
+                handle.visible = False
 
-        if use_collision:
+            # /panda_rightfinger::box_2__col
             # Update robot link visibility based on collision status
             current_geoms_in_contact = set()
             for name_pair in colliding_geom_names:
                 current_geoms_in_contact.add(name_pair[0])
                 current_geoms_in_contact.add(name_pair[1])
+                print(current_geoms_in_contact)
 
             # Hide geoms that are no longer in contact
             for geom_name in last_geoms_in_contact - current_geoms_in_contact:
-                mesh_handle_name = f"/{geom_name}__col"
-                if mesh_handle_name in mesh_handles_collision:
-                    mesh_handles_collision[mesh_handle_name].visible = False
+                assert (
+                    f"/{geom_name}{colliding_extension}" in mesh_handles_collision
+                ), f"{geom_name}{colliding_extension} not in mesh_handles_collision. All geoms: {mesh_handles_collision.keys()}"
+                mesh_handles_collision[f"/{geom_name}{colliding_extension}"].visible = False
+                mesh_handles_default[f"/{geom_name}"].visible = True
 
             # Show geoms currently in contact
             for geom_name in current_geoms_in_contact:
-                mesh_handle_name = f"/{geom_name}__col"
-                if mesh_handle_name in mesh_handles_collision:
-                    mesh_handles_collision[mesh_handle_name].visible = True
+                assert (
+                    f"/{geom_name}{colliding_extension}" in mesh_handles_collision
+                ), f"{geom_name}{colliding_extension} not in mesh_handles_collision. All geoms: {mesh_handles_collision.keys()}"
+                mesh_handles_collision[f"/{geom_name}{colliding_extension}"].visible = True
+                mesh_handles_default[f"/{geom_name}"].visible = False
 
             last_geoms_in_contact = current_geoms_in_contact
 
-        # for i, contact in enumerate(contacts):
-        while len(contacts) > len(icosphere_handles):
-            icosphere_handles.append(
-                server.scene.add_icosphere(
-                    name=f"contact_{len(icosphere_handles)}",
-                    position=contacts[len(icosphere_handles)].point,
-                    radius=0.01,
+            # for i, contact in enumerate(contacts):
+            while len(contacts) > len(icosphere_handles):
+                icosphere_handles.append(
+                    server.scene.add_icosphere(
+                        name=f"contact_{len(icosphere_handles)}",
+                        position=contacts[len(icosphere_handles)].point,
+                        radius=0.01,
+                    )
                 )
-            )
 
-        for i, contact in enumerate(contacts):
-            icosphere_handles[i].position = contact.point
-            icosphere_handles[i].visible = True
+            for i, contact in enumerate(contacts):
+                icosphere_handles[i].position = contact.point
+                icosphere_handles[i].visible = True
 
         sleep(1 / 100)
