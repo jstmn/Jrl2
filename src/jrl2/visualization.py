@@ -41,7 +41,7 @@ def visualize_scene(
     collision_checker: SingleSceneCollisionChecker,
     q_dict: NP_Q_DICT_TYPE | None = None,
     get_q_dict: Callable[[], NP_Q_DICT_TYPE] | None = None,
-    get_pointclouds: Callable[[], dict[str, o3d.geometry.PointCloud]] | None = None,
+    get_pointclouds: Callable[[], dict[str, o3d.t.geometry.PointCloud]] | None = None,
     show_frames: bool = False,
     use_visual: bool = True,
     q_range_padding: float | None = None,
@@ -70,6 +70,7 @@ def visualize_scene(
     meshes_added = False
     mesh_handles_default = {}
     mesh_handles_collision = {}
+    pointcloud_handles = {}
     obstacle_color = [1.0, 0.85, 0.0]
     obstacle_color_collision = [1.0, 0.1, 0.0]
     obstacle_opacity = 0.85
@@ -108,6 +109,17 @@ def visualize_scene(
                 faces=box.faces,
                 opacity=obstacle_opacity,
                 color=color,
+            )
+
+    if get_pointclouds is not None:
+        for name, pointcloud in get_pointclouds().items():
+            pointcloud_handles[name] = server.add_point_cloud(
+                name=name,
+                points=pointcloud.point.positions.numpy(),
+                colors=pointcloud.point.colors.numpy(),
+                point_size=0.005,
+                point_shape="circle",
+                visible=True,
             )
 
     # def get_mesh_handle(is_colliding: bool, geom_name: str):
@@ -190,6 +202,24 @@ def visualize_scene(
             q_dict = get_q_dict()
             update_configuration(q_dict)
 
+        if get_pointclouds is not None:
+            pointclouds = get_pointclouds()
+            existing_pointclouds = set(pointcloud_handles.keys())
+            for name in existing_pointclouds - pointclouds.keys():
+                pointcloud_handles[name].remove()
+            for name in existing_pointclouds & pointclouds.keys():
+                pointcloud_handles[name].points = pointclouds[name].point.positions.numpy()
+                pointcloud_handles[name].colors = pointclouds[name].point.colors.numpy()
+            for name in pointclouds.keys() - existing_pointclouds:
+                pointcloud_handles[name] = server.add_point_cloud(
+                    name=name,
+                    points=pointclouds[name].point.positions.numpy(),
+                    colors=pointclouds[name].point.colors.numpy(),
+                    point_size=0.005,
+                    point_shape="circle",
+                    visible=True,
+                )
+
         if visualize_collisions:
             _, colliding_geom_names, contacts = collision_checker.check_collisions(
                 q_dict, return_contacts=True, print_timing=counter % 500 == 0, q_range_padding=q_range_padding
@@ -210,7 +240,6 @@ def visualize_scene(
             for name_pair in colliding_geom_names:
                 current_geoms_in_contact.add(name_pair[0])
                 current_geoms_in_contact.add(name_pair[1])
-                print(current_geoms_in_contact)
 
             # Hide geoms that are no longer in contact
             for geom_name in last_geoms_in_contact - current_geoms_in_contact:
