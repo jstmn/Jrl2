@@ -10,6 +10,7 @@ from jrl2.collision_detection_single_scene import SingleSceneCollisionChecker
 """
 uv run scripts/visualize_robot.py --robot panda --use_visual
 uv run scripts/visualize_robot.py --robot panda --use_collision
+uv run scripts/visualize_robot.py --robot panda --use_collision --h5_filepath '~/Projects/mpcm2/data/08-18_20:02:30__push-T, 2 (Aug 18)/data.h5'
 """
 
 
@@ -35,6 +36,7 @@ def main():
     parser.add_argument("--robot", type=str, required=True, help="The name of the robot to visualize")
     parser.add_argument("--use_visual", action="store_true", help="Whether to use visual or collision geometries")
     parser.add_argument("--use_collision", action="store_true", help="Whether to use visual or collision geometries")
+    parser.add_argument("--h5_filepath", type=str, required=False, help="The path to the h5 file to visualize")
     args = parser.parse_args()
 
     assert not (args.use_visual and args.use_collision), "Cannot use both visual and collision geometries"

@@ -21,7 +21,12 @@ class Panda(Robot):
             "always": [
                 ("panda_leftfinger::box_4", "panda_rightfinger::box_4"),
             ]
-        }
+        },
+        "visual": {
+            "always": [
+                ("panda_leftfinger::finger.dae", "panda_rightfinger::finger.dae"),
+            ]
+        },
     }
 
     def __init__(self):
