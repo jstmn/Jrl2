@@ -146,10 +146,8 @@ def visualize_scene(
                             mesh_dict[name] = server.add_mesh_trimesh(
                                 name=name, mesh=link_trimesh_object, position=position, wxyz=wxyz
                             )
-                            print(f"Added mesh with extension={extension}: {name}")
                         else:
                             # collision mesh, or the mesh_simple variant for the visual mesh
-                            print(f"Added mesh with extension={extension}: {name}")
                             mesh_dict[name] = server.add_mesh_simple(
                                 name=name,
                                 vertices=link_trimesh_object.vertices,

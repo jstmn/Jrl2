@@ -20,6 +20,7 @@ class SingleSceneCollisionChecker:
         self._spheres: list[Sphere] = []
         self._boxes: list[Box] = []
         self._collision_manager = trimesh.collision.CollisionManager()
+        self._user_ignored_pairs: set[tuple[str, str]] = set()
 
         # Add meshes to scene
         link_mesh_poses = self._robot.get_all_link_geometry_poses_non_batched(
@@ -80,10 +81,19 @@ class SingleSceneCollisionChecker:
             else:
                 return is_collision, names
 
+        def pair_should_be_ignored(name_pair: tuple[str, str]) -> bool:
+            assert len(name_pair) == 2, f"Expected tuple of length 2, got {len(name_pair)}"
+            name_pair_ordered = self._robot.return_ordered_geometry_name_pair(name_pair[0], name_pair[1])
+            if name_pair_ordered in self._user_ignored_pairs:
+                return True
+            return self._robot.geometries_cant_collide(
+                name_pair_ordered[0], name_pair_ordered[1], use_visual=self._use_visual
+            )
+
         # Filter out pairs of geometries that are known a priori to be always colliding
         pairs_filtered = set()
         for name in names:
-            if not self._robot.geometries_cant_collide(name[0], name[1], use_visual=self._use_visual):
+            if not pair_should_be_ignored(name):
                 pairs_filtered.add(name)
 
         contacts_filtered = []
@@ -91,7 +101,7 @@ class SingleSceneCollisionChecker:
             for contact in contacts:
                 assert len(contact.names) == 2
                 name_pair = tuple(contact.names)
-                if not self._robot.geometries_cant_collide(name_pair[0], name_pair[1], use_visual=self._use_visual):
+                if not pair_should_be_ignored(name_pair):
                     contacts_filtered.append(contact)
             return len(pairs_filtered) > 0, pairs_filtered, contacts_filtered
         return len(pairs_filtered) > 0, pairs_filtered
@@ -113,3 +123,7 @@ class SingleSceneCollisionChecker:
             name=box_name,
         )
         return box_name
+
+    def ignore_pair(self, name_pair: tuple[str, str]):
+        assert len(name_pair) == 2, f"Expected tuple of length 2, got {len(name_pair)}"
+        self._user_ignored_pairs.add(self._robot.return_ordered_geometry_name_pair(name_pair[0], name_pair[1]))
