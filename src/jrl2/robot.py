@@ -3,8 +3,6 @@ import importlib.resources
 from pathlib import Path
 import yaml
 
-
-import jrl2.collision_filtering_data
 from yourdfpy import Robot as YourdfpyRobot
 from yourdfpy import URDF as YourdfpyURDF
 from yourdfpy import Link, Joint
@@ -13,12 +11,11 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 import trimesh
 
+from jrl2.types import NP_SE3_TYPE, NP_Q_DICT_TYPE
+import jrl2.collision_filtering_data
+
 
 ACTUATED_JOINT_TYPES = ["revolute", "prismatic", "continuous"]
-
-NP_SE3_TYPE = np.ndarray
-NP_Q_TYPE = np.ndarray  # [ndof array]
-NP_Q_DICT_TYPE = dict[str, float]  # {joint_name: joint_angle}
 
 
 # TODO: replace scipy rotations with numba jitted rotations

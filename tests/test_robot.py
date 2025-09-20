@@ -3,11 +3,12 @@ from pathlib import Path
 import tempfile
 import os
 
-from yourdfpy import Link, Joint
+from yourdfpy import Link, Joint, Limit
 from yourdfpy import Robot as YourdfpyRobot
 import numpy as np
 from scipy.spatial.transform import Rotation
 import kinpy as kp
+
 
 from jrl2.robot import Robot
 from jrl2.robots import UR5
@@ -85,6 +86,7 @@ def mock_robot_prismatic(request) -> tuple[Robot, dict[str, float], dict[str, np
             axis=[0, 0, 1],
             origin=origin["left_joint"],
             type="prismatic",
+            limit=Limit(lower=0.0, upper=1.0),
         ),
         Joint(
             name="right_joint",
@@ -93,6 +95,7 @@ def mock_robot_prismatic(request) -> tuple[Robot, dict[str, float], dict[str, np
             axis=[0, 0, -1],
             origin=origin["right_joint"],
             type="prismatic",
+            limit=Limit(lower=0.0, upper=1.0),
         ),
     ]
     yourdfpy_robot = YourdfpyRobot(name="mock_robot_prismatic", links=links, joints=joints)
@@ -154,6 +157,7 @@ def mock_robot_revolute(request) -> tuple[Robot, dict[str, float], dict[str, np.
             axis=[0, 0, 1],
             origin=origin["left_joint"],
             type="revolute",
+            limit=Limit(lower=-10.0, upper=10.0),
         ),
         Joint(
             name="right_joint",
@@ -162,6 +166,7 @@ def mock_robot_revolute(request) -> tuple[Robot, dict[str, float], dict[str, np.
             axis=[0, 0, -1],
             origin=origin["right_joint"],
             type="revolute",
+            limit=Limit(lower=-10.0, upper=10.0),
         ),
     ]
     yourdfpy_robot = YourdfpyRobot(name="mock_robot_prismatic", links=links, joints=joints)

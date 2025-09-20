@@ -1,9 +1,12 @@
+from time import time
+
 import pytest
 import numpy as np
-
+from trimesh.primitives import Box, Sphere
 from jrl2.robots import get_robot_by_name
 from jrl2.collision_detection_single_scene import SingleSceneCollisionChecker
 from jrl2.robot import Robot
+from jrl2.math_utils import get_translated_pose
 
 np.set_printoptions(precision=4, suppress=True)
 
@@ -16,30 +19,52 @@ uv run pytest  -W "ignore::DeprecationWarning" -W "ignore::UserWarning" --captur
 
 
 @pytest.mark.parametrize(
-    "sphere_centers, sphere_radii, is_collision_gt",
+    "spheres, is_collision_gt",
     [
         (
-            {"sphere_centers": [np.array([10, 0, 0]), np.array([11, 0, 0])]},
-            {"sphere_radii": [0.25, 0.25]},
+            [
+                Sphere(radius=0.25, center=np.array([10, 0, 0])),
+                Sphere(radius=0.25, center=np.array([11, 0, 0]))
+            ],
             False,  # No collision expected
         ),
         (
-            {"sphere_centers": [np.array([5, 0, 0]), np.array([6, 0, 0])]},
-            {"sphere_radii": [0.55, 0.55]},
+            [
+                Sphere(radius=0.55, center=np.array([5, 0, 0])),
+                Sphere(radius=0.55, center=np.array([6, 0, 0]))
+            ],
             True,  # Collision expected
         ),
     ],
 )
-def test_check_sphere_collisions(sphere_centers, sphere_radii, is_collision_gt: bool):
+def test_check_sphere_collisions(spheres, is_collision_gt: bool):
     robot = PANDA
     for use_visual in [True, False]:
         collision_checker = SingleSceneCollisionChecker(robot, use_visual=use_visual)
-        for sphere_center, sphere_radius in zip(sphere_centers["sphere_centers"], sphere_radii["sphere_radii"]):
-            collision_checker.add_sphere(sphere_center, sphere_radius)
+        for sphere in spheres:
+            collision_checker.add_sphere(sphere)
         is_collision, colliding_links = collision_checker.check_collisions(robot.midpoint_configuration)
         assert is_collision == is_collision_gt, f"Expected collision: {is_collision_gt}, got: {is_collision}"
         if is_collision:
             assert colliding_links == {("sphere_0", "sphere_1")}
+
+
+def test_get_contacts_runtime_increase():
+    robot = PANDA
+    collision_checker = SingleSceneCollisionChecker(robot, use_visual=False)
+    box = Box(extents=(0.25, 0.25, 0.05), transform=get_translated_pose(np.array([0.25, -0.4, 0.5])))
+    collision_checker.add_box(box)
+    print()
+    N = 100
+    q_rands = [robot.sample_random_q_non_batched() for _ in range(N)]
+    for return_contacts in [True, False]:
+        print("~~~~~~~~~~")
+        print(f"{return_contacts=}")
+        t0 = time()
+        for i in range(N):
+            collision_checker.check_collisions(q_rands[i], return_contacts=return_contacts)
+        t1 = time()
+        print(f"Time taken: {t1 - t0}")
 
 
 @pytest.fixture
