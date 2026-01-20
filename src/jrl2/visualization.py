@@ -2,7 +2,6 @@ import socket
 from typing import Callable
 
 import viser
-from scipy.spatial.transform import Rotation
 import numpy as np
 from time import sleep
 import open3d as o3d
@@ -22,7 +21,35 @@ def assert_no_existing_server():
 
 
 def _wxyz_from_transform(transform: np.ndarray) -> np.ndarray:
-    return Rotation.from_matrix(transform[:3, :3]).as_quat(scalar_first=True)
+    rotation = transform[:3, :3]
+    trace = np.trace(rotation)
+    if trace > 0.0:
+        s = np.sqrt(trace + 1.0) * 2.0
+        w = 0.25 * s
+        x = (rotation[2, 1] - rotation[1, 2]) / s
+        y = (rotation[0, 2] - rotation[2, 0]) / s
+        z = (rotation[1, 0] - rotation[0, 1]) / s
+    elif rotation[0, 0] > rotation[1, 1] and rotation[0, 0] > rotation[2, 2]:
+        s = np.sqrt(1.0 + rotation[0, 0] - rotation[1, 1] - rotation[2, 2]) * 2.0
+        w = (rotation[2, 1] - rotation[1, 2]) / s
+        x = 0.25 * s
+        y = (rotation[0, 1] + rotation[1, 0]) / s
+        z = (rotation[0, 2] + rotation[2, 0]) / s
+    elif rotation[1, 1] > rotation[2, 2]:
+        s = np.sqrt(1.0 + rotation[1, 1] - rotation[0, 0] - rotation[2, 2]) * 2.0
+        w = (rotation[0, 2] - rotation[2, 0]) / s
+        x = (rotation[0, 1] + rotation[1, 0]) / s
+        y = 0.25 * s
+        z = (rotation[1, 2] + rotation[2, 1]) / s
+    else:
+        s = np.sqrt(1.0 + rotation[2, 2] - rotation[0, 0] - rotation[1, 1]) * 2.0
+        w = (rotation[1, 0] - rotation[0, 1]) / s
+        x = (rotation[0, 2] + rotation[2, 0]) / s
+        y = (rotation[1, 2] + rotation[2, 1]) / s
+        z = 0.25 * s
+
+    quat = np.array([w, x, y, z], dtype=float)
+    return quat / np.linalg.norm(quat)
 
 
 def _position_from_transform(transform: np.ndarray) -> np.ndarray:
