@@ -12,10 +12,11 @@ dependencies = [
    "kinpy>=0.0.5",
    "open3d>=0.18.0",
    "python-fcl>=0.7.0.8",
-   "robot-descriptions>=1.20.0",
+   "robot-descriptions>=1.23.0,<3",
    "tqdm>=4.67.1",
    "trimesh>=4.8.0",
    "viser>=1.0.6",
+   "xacrodoc>=2.0.1",
    "yourdfpy>=0.0.58",
 ]
 

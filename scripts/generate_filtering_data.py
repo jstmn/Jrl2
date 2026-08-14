@@ -14,7 +14,7 @@ Note that we use the visual geometries for collision checking, because they prov
 of the actual robot.
 
 # Example usage:
-uv run scripts/generate_filtering_data.py --robot panda --n 10000
+uv run scripts/generate_filtering_data.py --robot xarm7 --n 10000
 """
 
 import argparse
@@ -54,7 +54,7 @@ def get_data(robot: Robot, n: int, collision_checker: SingleSceneCollisionChecke
     data = {}
     for i in tqdm(range(n)):
         q = robot.sample_random_q_non_batched()
-        _, names = collision_checker.check_collisions(q, dont_filter=True, print_timing=i % 1000 == 0)
+        _, names, _ = collision_checker.check_collisions(q, filter_ignorable=False, print_timing=i % 1000 == 0)
         for name in names:
             assert len(name) == 2
             assert name[0] in geom_names

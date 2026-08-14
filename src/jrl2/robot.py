@@ -6,6 +6,7 @@ import yaml
 from yourdfpy import Robot as YourdfpyRobot
 from yourdfpy import URDF as YourdfpyURDF
 from yourdfpy import Link, Joint
+from robot_descriptions._xacro import get_urdf_path
 from robot_descriptions.loaders.yourdfpy import load_robot_description
 import numpy as np
 from scipy.spatial.transform import Rotation
@@ -131,7 +132,7 @@ class Robot:
             # self._urdf_filepath='~/.cache/robot_descriptions/example-robot-data/robots/panda_description/urdf/panda.urdf'
             # self._robot_description_dir='~/.cache/robot_descriptions/example-robot-data/robots/panda_description'
             # self._repository_path='~/.cache/robot_descriptions/example-robot-data'
-            self._urdf_filepath = Path(module.URDF_PATH)
+            self._urdf_filepath = Path(get_urdf_path(module))
             self._robot_description_dir = Path(module.PACKAGE_PATH)
             self._repository_path = Path(module.REPOSITORY_PATH)
             assert self._urdf_filepath.exists(), f"URDF file {self._urdf_filepath} does not exist"

@@ -51,13 +51,18 @@ class UR10(Robot):
         super().__init__("ur10_description")
 
 
-ALL_ROBOTS = [Panda, UR5, UR10]
+class XArm7(Robot):
+    def __init__(self):
+        super().__init__("xarm7_description")
+
+
+ALL_ROBOTS = [Panda, UR5, UR10, XArm7]
 NAME_TO_ROBOT = {robot.__name__.lower(): robot for robot in ALL_ROBOTS}
 
 
 def get_robot_by_name(name: str) -> Robot:
     try:
-        return NAME_TO_ROBOT[name]()
+        return NAME_TO_ROBOT[name.lower()]()
     except KeyError:
         raise ValueError(f"Robot with name {name} not found. Available robots: {NAME_TO_ROBOT.keys()}")
 
