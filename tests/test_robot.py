@@ -1,17 +1,16 @@
-import pytest
-from pathlib import Path
-import tempfile
 import os
+import tempfile
+from pathlib import Path
 
-from yourdfpy import Link, Joint, Limit
-from yourdfpy import Robot as YourdfpyRobot
-import numpy as np
-from scipy.spatial.transform import Rotation
 import kinpy as kp
-
+import numpy as np
+import pytest
+from scipy.spatial.transform import Rotation
+from yourdfpy import Joint, Limit, Link
+from yourdfpy import Robot as YourdfpyRobot
 
 from jrl2.robot import Robot
-from jrl2.robots import UR5
+from jrl2.robots import ALL_ROBOTS
 
 np.set_printoptions(precision=4, suppress=True)
 
@@ -34,14 +33,12 @@ def _get_rotated_pose(axis: np.ndarray, angle: float) -> np.ndarray:
     return pose
 
 
-def forward_kinematics_kinpy(urdf_filepath: Path, q_dict: np.ndarray, link_name: str) -> kp.transform.Transform:
-    """
-    Returns the pose of the end effector for each joint parameter setting in x
-    """
-
+def _kinpy_chain_from_urdf(urdf_filepath: Path):
     with open(urdf_filepath) as f:
-        kinpy_fk_chain = kp.build_chain_from_urdf(f.read().encode("utf-8"))
+        return kp.build_chain_from_urdf(f.read().encode("utf-8"))
 
+
+def forward_kinematics_kinpy(kinpy_fk_chain, q_dict: dict[str, float], link_name: str) -> np.ndarray:
     zero_transform = kp.transform.Transform()
     return kinpy_fk_chain.forward_kinematics(q_dict, world=zero_transform)[link_name].matrix()
 
@@ -185,44 +182,38 @@ def test_get_all_link_poses_non_batched_revolute(mock_robot_revolute: Robot):
         assert np.allclose(pose, gt_poses[link_name], rtol=0.0, atol=0.001)
 
 
-@pytest.fixture
-def ur5_robot():
-    return UR5()
+@pytest.mark.parametrize("robot_cls", ALL_ROBOTS, ids=lambda cls: cls.__name__)
+def test_get_all_link_poses_non_batched_matches_kinpy(robot_cls):
+    robot = robot_cls()
+    assert robot is not None
+    has_prismatic = any(joint.type == "prismatic" for joint in robot.actuated_joints)
 
-
-def test_get_all_link_poses_non_batched_ur5(ur5_robot: UR5):
-    assert ur5_robot is not None
-    assert isinstance(ur5_robot, UR5)
-
-    # Kinpy doesn't support prismatic joints, so verify that none are present
-    for joint in ur5_robot.actuated_joints:
-        assert joint.type != "prismatic"
-
-    # Create a temporary file that the test can write to
     with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as tmp_file:
         urdf_filepath = Path(tmp_file.name)
-        ur5_robot._yourdfpy_model.write_xml_file(urdf_filepath)
+        robot._yourdfpy_model.write_xml_file(urdf_filepath)
 
     try:
+        kinpy_fk_chain = None if has_prismatic else _kinpy_chain_from_urdf(urdf_filepath)
         for _ in range(10):
-            q_dict = {joint.name: 2 * np.random.random() - 1 for joint in ur5_robot.actuated_joints}
-            jrl2_link_poses = ur5_robot.get_all_link_poses_non_batched(q_dict)
+            q_dict = robot.sample_random_q_non_batched()
+            jrl2_link_poses = robot.get_all_link_poses_non_batched(q_dict)
 
-            # Verify the jrl2 link poses are well formatted
             for link_name, tf in jrl2_link_poses.items():
                 assert tf is not None, f"JRL2 forward kinematics returned None for link {link_name}"
                 assert isinstance(tf, np.ndarray), f"JRL2 forward kinematics returned {type(tf)} for link {link_name}"
                 assert tf.shape == (4, 4), f"JRL2 forward kinematics returned {tf.shape} for link {link_name}"
 
-            for link_name in ur5_robot.link_names:
+            if has_prismatic:
+                # Kinpy does not support prismatic joints, so only check pose formatting.
+                continue
+
+            for link_name in robot.link_names:
                 assert link_name in jrl2_link_poses
-                link_tf_kinpy = forward_kinematics_kinpy(urdf_filepath, q_dict, link_name)
+                link_tf_kinpy = forward_kinematics_kinpy(kinpy_fk_chain, q_dict, link_name)
                 link_tf_jrl2 = jrl2_link_poses[link_name]
                 assert link_tf_kinpy is not None, f"Kinpy forward kinematics returned None for link {link_name}"
                 assert link_tf_jrl2 is not None, f"JRL2 forward kinematics returned None for link {link_name}"
-                assert np.allclose(jrl2_link_poses[link_name], link_tf_kinpy)
-
+                assert np.allclose(link_tf_jrl2, link_tf_kinpy), f"FK mismatch for {robot.name} link {link_name}"
     finally:
-        # Clean up the temporary file
         if urdf_filepath.exists():
             os.unlink(urdf_filepath)

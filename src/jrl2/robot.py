@@ -1,20 +1,19 @@
-from importlib import import_module  # type: ignore
 import importlib.resources
+from importlib import import_module  # type: ignore
 from pathlib import Path
-import yaml
 
-from yourdfpy import Robot as YourdfpyRobot
-from yourdfpy import URDF as YourdfpyURDF
-from yourdfpy import Link, Joint
+import numpy as np
+import trimesh
+import yaml
 from robot_descriptions._xacro import get_urdf_path
 from robot_descriptions.loaders.yourdfpy import load_robot_description
-import numpy as np
 from scipy.spatial.transform import Rotation
-import trimesh
+from yourdfpy import URDF as YourdfpyURDF
+from yourdfpy import Joint, Link
+from yourdfpy import Robot as YourdfpyRobot
 
-from jrl2.types import NP_SE3_TYPE, NP_Q_DICT_TYPE
 import jrl2.collision_filtering_data
-
+from jrl2.types import NP_Q_DICT_TYPE, NP_SE3_TYPE
 
 ACTUATED_JOINT_TYPES = ["revolute", "prismatic", "continuous"]
 
@@ -196,10 +195,61 @@ class Robot:
         self._joints_by_name: dict[str, Joint] = {joint.name: joint for joint in self._urdfpy_robot.joints}
         # self._successor_links maps a Link to a [(Link[parent], Joint, Link[child]), ...] tuple for every link.
         self._successor_links: dict[str, list[tuple[Link, Joint, Link]]] = _get_successor_links(self._urdfpy_robot)
+        self._geometry_cache: dict[str, dict[str, list[tuple[str, trimesh.Trimesh, NP_SE3_TYPE]]]] = {
+            "visual": {
+                link.name: self._geometries_for_link(link, use_visual=True) for link in self._urdfpy_robot.links
+            },
+            "collision": {
+                link.name: self._geometries_for_link(link, use_visual=False) for link in self._urdfpy_robot.links
+            },
+        }
 
         self._nominal_q = nominal_q
         if self._nominal_q is None:
             self._nominal_q = self.midpoint_configuration
+
+    def _geometries_for_link(self, link: Link, use_visual: bool) -> list[tuple[str, trimesh.Trimesh, NP_SE3_TYPE]]:
+        """Load and cache the visual or collision geometries for a link, in the link frame."""
+        visual_or_collision = (link.visuals if use_visual else link.collisions) or []
+        geometries = []
+        box_count = 0
+        cylinder_count = 0
+        sphere_count = 0
+        for visual_or_collision_i in visual_or_collision:
+            link_T_mesh = visual_or_collision_i.origin
+            geom = visual_or_collision_i.geometry
+            if link_T_mesh is None:
+                link_T_mesh = np.eye(4)
+            else:
+                link_T_mesh = np.array(link_T_mesh, copy=True)
+
+            if geom.mesh is not None:
+                filename = self._yourdfpy_model._filename_handler(fname=geom.mesh.filename)
+                assert Path(filename).exists(), f"File {filename} does not exist"
+                geometry = trimesh.load(
+                    filename,
+                    ignore_broken=True,
+                    force="mesh",
+                    skip_materials=True,
+                )
+                name = f"{link.name}::{Path(geom.mesh.filename).name}"
+            elif geom.box is not None:
+                box_count += 1
+                geometry = trimesh.primitives.Box(geom.box.size)
+                name = f"{link.name}::box_{box_count}"
+            elif geom.cylinder is not None:
+                cylinder_count += 1
+                geometry = trimesh.primitives.Cylinder(geom.cylinder.radius, geom.cylinder.length)
+                name = f"{link.name}::cylinder_{cylinder_count}"
+            elif geom.sphere is not None:
+                sphere_count += 1
+                geometry = trimesh.primitives.Sphere(geom.sphere.radius)
+                name = f"{link.name}::sphere_{sphere_count}"
+            else:
+                raise ValueError(f"Link {link.name} has an unsupported geometry. Geometry: {geom}")
+
+            geometries.append((name, geometry, link_T_mesh))
+        return geometries
 
     def geometries_cant_collide(self, geom_1: str, geom_2: str, use_visual: bool) -> bool:
         """Returns whether two links are physically unable of colliding so long as joint limits are respected."""
@@ -260,21 +310,11 @@ class Robot:
 
     @property
     def visual_geometry_names(self) -> list[str]:
-        names = []
-        all_geometries = self.get_all_link_geometry_poses_non_batched(self.midpoint_configuration, use_visual=True)
-        for _, geometries in all_geometries.items():
-            for geometry in geometries:
-                names.append(geometry[0])
-        return names
+        return [name for geoms in self._geometry_cache["visual"].values() for name, _, _ in geoms]
 
     @property
     def collision_geometry_names(self) -> list[str]:
-        names = []
-        all_geometries = self.get_all_link_geometry_poses_non_batched(self.midpoint_configuration, use_visual=False)
-        for _, geometries in all_geometries.items():
-            for geometry in geometries:
-                names.append(geometry[0])
-        return names
+        return [name for geoms in self._geometry_cache["collision"].values() for name, _, _ in geoms]
 
     @staticmethod
     def return_ordered_geometry_name_pair(name_1: str, name_2: str) -> tuple[str, str]:
@@ -300,7 +340,6 @@ class Robot:
             {joint.name: 0.0 for joint in self._urdfpy_robot.joints if joint.type not in ACTUATED_JOINT_TYPES}
         )
 
-        #
         root_link = self._links_by_name[self._yourdfpy_model.base_link]
         poses[root_link.name] = root_link_pose
         search_queue = []  # (current_link, joint, child_link)
@@ -314,7 +353,6 @@ class Robot:
             # Compute the transformation for this joint
             link_T_successor = _fk_step_non_batched(joint, q_dict_full[joint.name])
             poses[child_link.name] = poses[current_link.name] @ link_T_successor
-            #
             for child_link_repeated, next_joint, next_child_link in self._successor_links[child_link.name]:
                 assert child_link_repeated == child_link, f"Child link repeated: {child_link_repeated} != {child_link}"
                 search_queue.append((child_link_repeated, next_joint, next_child_link))
@@ -356,58 +394,13 @@ class Robot:
             2. The return type will be dict[str, list[tuple[None, NP_SE3_TYPE]]]
         """
         link_poses = self.get_all_link_poses_non_batched(q_dict)
+        cached = self._geometry_cache["visual" if use_visual else "collision"]
         link_meshes = {}
         for link_name, link_pose in link_poses.items():
-
-            # Setup variables
             link_meshes[link_name] = []
-            link = self._links_by_name[link_name]
-
-            # Get the mesh
-            visual_or_collision = link.visuals if use_visual else link.collisions
-            box_count = 0
-            cylinder_count = 0
-            sphere_count = 0
-            for i in range(len(visual_or_collision)):
-                link_T_mesh = visual_or_collision[i].origin
-                geom = visual_or_collision[i].geometry  # May be one of the following:
-                if link_T_mesh is None:
-                    link_T_mesh = np.eye(4)
+            for name, geometry, link_T_mesh in cached[link_name]:
                 mesh_pose = link_pose @ link_T_mesh
-                geometry = None
-
-                if geom.mesh is not None:
-                    if not only_poses:
-                        new_filename = self._yourdfpy_model._filename_handler(fname=geom.mesh.filename)
-                        assert Path(new_filename).exists(), f"File {new_filename} does not exist"
-                        geometry = trimesh.load(
-                            new_filename,
-                            ignore_broken=True,
-                            force="mesh",
-                            skip_materials=True,
-                        )
-                    name = f"{link_name}::{Path(geom.mesh.filename).name}"
-                    # print(f"geom.mesh.filename: {geom.mesh.filename}, name: {name}")
-                elif geom.box is not None:
-                    box_count += 1
-                    geometry = trimesh.primitives.Box(geom.box.size) if not only_poses else None
-                    name = f"{link_name}::box_{box_count}"
-                elif geom.cylinder is not None:
-                    cylinder_count += 1
-                    geometry = (
-                        trimesh.primitives.Cylinder(geom.cylinder.radius, geom.cylinder.length)
-                        if not only_poses
-                        else None
-                    )
-                    name = f"{link_name}::cylinder_{cylinder_count}"
-                elif geom.sphere is not None:
-                    sphere_count += 1
-                    geometry = trimesh.primitives.Sphere(geom.sphere.radius) if not only_poses else None
-                    name = f"{link_name}::sphere_{sphere_count}"
-                else:
-                    raise ValueError(f"Link {link_name} has an unsupported geometry. Geometry: {geom}")
-
-                link_meshes[link_name].append((name, geometry, mesh_pose))
+                link_meshes[link_name].append((name, None if only_poses else geometry, mesh_pose))
         return link_meshes
 
     def __str__(self):

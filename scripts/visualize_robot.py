@@ -1,11 +1,11 @@
 import argparse
 
 import numpy as np
-from trimesh.primitives import Sphere, Box
+from trimesh.primitives import Box, Sphere
 
-from jrl2.visualization import visualize_scene
-from jrl2.robots import get_robot_by_name
 from jrl2.collision_detection_single_scene import SingleSceneCollisionChecker
+from jrl2.robots import get_robot_by_name
+from jrl2.visualization import visualize_scene
 
 """
 uv run scripts/visualize_robot.py --robot panda --use_visual

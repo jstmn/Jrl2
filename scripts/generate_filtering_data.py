@@ -20,12 +20,12 @@ uv run scripts/generate_filtering_data.py --robot xarm7 --n 10000
 import argparse
 import os
 
-from tqdm import tqdm
 import yaml
+from tqdm import tqdm
 
-from jrl2.robots import get_robot_by_name
 from jrl2.collision_detection_single_scene import SingleSceneCollisionChecker
 from jrl2.robot import Robot
+from jrl2.robots import get_robot_by_name
 
 assert os.path.exists("src/jrl2/robot.py"), "Current working directory must be the project root"
 

@@ -1,13 +1,13 @@
 import socket
-from typing import Callable
-
-import viser
-import numpy as np
+from collections.abc import Callable
 from time import sleep
+
+import numpy as np
 import open3d as o3d
+import viser
 
 from jrl2.collision_detection_single_scene import SingleSceneCollisionChecker
-from jrl2.robot import Robot, NP_Q_DICT_TYPE
+from jrl2.robot import NP_Q_DICT_TYPE, Robot
 
 np.set_printoptions(precision=4, suppress=True)
 
@@ -217,7 +217,6 @@ def visualize_scene(
     print("Open your browser to http://localhost:8080")
     print("Press Ctrl+C to exit")
 
-    #
     counter = 0
     icosphere_handles = []
     last_geoms_in_contact = set()
