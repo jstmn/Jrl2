@@ -52,12 +52,57 @@ class UR10(Robot):
 
 
 class XArm7(Robot):
+    ROBOT_ID = "xarm7"
+
     def __init__(self):
-        super().__init__("xarm7_description")
+        super().__init__("xarm7_description", robot_id=self.ROBOT_ID)
 
 
-ALL_ROBOTS = [Panda, UR5, UR10, XArm7]
-NAME_TO_ROBOT = {robot.__name__.lower(): robot for robot in ALL_ROBOTS}
+class XArm7Gripper(Robot):
+    """xArm7 with the UFACTORY parallel-jaw gripper (`add_gripper:=true`)."""
+
+    ROBOT_ID = "xarm7__gripper"
+
+    def __init__(self):
+        super().__init__(
+            "xarm7_description",
+            xacro_args={"add_gripper": "true"},
+            robot_id=self.ROBOT_ID,
+            collision_filtering_stem="xarm7",
+        )
+
+
+class XArm7BioGripper(Robot):
+    """xArm7 with the UFACTORY BIO gripper (`add_bio_gripper:=true`)."""
+
+    ROBOT_ID = "xarm7__bio_gripper"
+
+    def __init__(self):
+        super().__init__(
+            "xarm7_description",
+            xacro_args={"add_bio_gripper": "true"},
+            robot_id=self.ROBOT_ID,
+            collision_filtering_stem="xarm7",
+        )
+
+
+class XArm7VacuumGripper(Robot):
+    """xArm7 with the UFACTORY vacuum gripper (`add_vacuum_gripper:=true`)."""
+
+    ROBOT_ID = "xarm7__vacuum_gripper"
+
+    def __init__(self):
+        super().__init__(
+            "xarm7_description",
+            xacro_args={"add_vacuum_gripper": "true"},
+            robot_id=self.ROBOT_ID,
+            collision_filtering_stem="xarm7",
+        )
+
+
+ALL_ROBOTS = [Panda, UR5, UR10, XArm7, XArm7Gripper, XArm7BioGripper, XArm7VacuumGripper]
+NAME_TO_ROBOT = {getattr(robot, "ROBOT_ID", robot.__name__.lower()): robot for robot in ALL_ROBOTS}
+assert len(NAME_TO_ROBOT) == len(ALL_ROBOTS), f"Duplicate robot ids: {list(NAME_TO_ROBOT)}"
 
 
 def get_robot_by_name(name: str) -> Robot:

@@ -101,6 +101,9 @@ class Robot:
         never_colliding_links: list[tuple[str, str]] = [],
         nominal_q: NP_Q_DICT_TYPE | None = None,
         additional_ignored_geoms: dict[str, list[tuple[str, str]]] = {},
+        xacro_args: dict[str, str] | None = None,
+        robot_id: str | None = None,
+        collision_filtering_stem: str | None = None,
     ):
         """Generate a robot class from a URDF file.
 
@@ -120,18 +123,46 @@ class Robot:
                                                           will be initialized to the midpoint configuration.
             additional_ignored_geoms (dict[str, list[tuple[str, str]]], optional): A dictionary of additional ignored
                                                                                    geometry pairs.
+            xacro_args (dict[str, str] | None, optional): Extra Xacro arguments merged on top of the description-module
+                                                          defaults. Only valid when loading from robot_descriptions.
+            robot_id (str | None, optional): Override `self.name`. Defaults to `name` with `_description` stripped.
+            collision_filtering_stem (str | None, optional): Stem of the collision-filtering YAML. Defaults to the
+                                                              description name with `_description` stripped.
         """
         if yourdfpy_robot is None:
             assert "_description" in name, f"Name {name} should contain _description"
-            self._name = name.replace("_description", "")
-            self._yourdfpy_model: YourdfpyURDF = load_robot_description(name, build_collision_scene_graph=True)
+            assert xacro_args is None or isinstance(
+                xacro_args, dict
+            ), f"xacro_args must be a dict or None, got {type(xacro_args)}"
+            if xacro_args is not None:
+                for key, value in xacro_args.items():
+                    assert isinstance(key, str) and len(key) > 0, f"xacro_args keys must be non-empty str, got {key!r}"
+                    assert isinstance(value, str), f"xacro_args[{key!r}] must be str, got {type(value)}"
+            description_stem = name.replace("_description", "")
+            if robot_id is None:
+                self._name = description_stem
+            else:
+                assert (
+                    isinstance(robot_id, str) and len(robot_id) > 0
+                ), f"robot_id must be a non-empty str, got {robot_id!r}"
+                self._name = robot_id
+            if collision_filtering_stem is None:
+                yaml_stem = description_stem
+            else:
+                assert (
+                    isinstance(collision_filtering_stem, str) and len(collision_filtering_stem) > 0
+                ), f"collision_filtering_stem must be a non-empty str, got {collision_filtering_stem!r}"
+                yaml_stem = collision_filtering_stem
+            self._yourdfpy_model: YourdfpyURDF = load_robot_description(
+                name, build_collision_scene_graph=True, xacro_args=xacro_args
+            )
             self._urdfpy_robot: YourdfpyRobot = self._yourdfpy_model.robot
             module = import_module(f"robot_descriptions.{name}")
             # Example:
             # self._urdf_filepath='~/.cache/robot_descriptions/example-robot-data/robots/panda_description/urdf/panda.urdf'
             # self._robot_description_dir='~/.cache/robot_descriptions/example-robot-data/robots/panda_description'
             # self._repository_path='~/.cache/robot_descriptions/example-robot-data'
-            self._urdf_filepath = Path(get_urdf_path(module))
+            self._urdf_filepath = Path(get_urdf_path(module, xacro_args=xacro_args))
             self._robot_description_dir = Path(module.PACKAGE_PATH)
             self._repository_path = Path(module.REPOSITORY_PATH)
             assert self._urdf_filepath.exists(), f"URDF file {self._urdf_filepath} does not exist"
@@ -141,7 +172,7 @@ class Robot:
             assert self._repository_path.exists(), f"Repository path {self._repository_path} does not exist"
 
             # Extract collision filtering data
-            resource_path = importlib.resources.files(jrl2.collision_filtering_data) / f"{self._name}.yaml"
+            resource_path = importlib.resources.files(jrl2.collision_filtering_data) / f"{yaml_stem}.yaml"
             with importlib.resources.as_file(resource_path) as file_path:
                 with open(file_path, "r") as f:
                     self._collision_filtering_data = yaml.load(f, Loader=yaml.FullLoader)

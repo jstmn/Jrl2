@@ -23,6 +23,42 @@ uv sync --no-dev         # Remove '--no-dev' to install with development depende
 uv pip install -e .
 ```
 
+# Robots and `{robot}__{eef}` names
+
+UrdFs come from [robot-descriptions](https://github.com/robot-descriptions/robot_descriptions.py). Look them up with
+`get_robot_by_name`:
+
+```python
+from jrl2.robots import get_robot_by_name
+
+robot = get_robot_by_name("xarm7__gripper")
+print(robot.name, robot.actuated_joint_names)
+```
+
+A **bare robot name** is the arm by itself (no extra end-effector xacro). When an end effector is attached, the name is
+`{robot}__{eef}`: the same arm description plus that EEF. `__` is the delimiter; `_` stays inside each token
+(`bio_gripper`, `vacuum_gripper`).
+
+| Name | Meaning |
+| --- | --- |
+| `panda` | Franka Panda (fingers are part of the base description) |
+| `ur5` | Universal Robots UR5 |
+| `ur10` | Universal Robots UR10 |
+| `xarm7` | UFACTORY xArm7, wrist flange only |
+| `xarm7__gripper` | xArm7 + UFACTORY parallel-jaw gripper |
+| `xarm7__bio_gripper` | xArm7 + UFACTORY BIO gripper |
+| `xarm7__vacuum_gripper` | xArm7 + UFACTORY vacuum gripper |
+
+xArm7 EEF variants are the same `xarm7_description` xacro with one of `add_gripper`, `add_bio_gripper`, or
+`add_vacuum_gripper` set. `link_eef` on the bare arm is an empty frame on `link7`; the gripper meshes are only present
+on the `{robot}__{eef}` names.
+
+```python
+from jrl2.robots import NAME_TO_ROBOT
+print(sorted(NAME_TO_ROBOT))
+```
+
+
 # uv cheat sheet
 
 Creating and working on Python projects, i.e., with a pyproject.toml.
