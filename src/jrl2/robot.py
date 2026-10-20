@@ -104,6 +104,7 @@ class Robot:
         xacro_args: dict[str, str] | None = None,
         robot_id: str | None = None,
         collision_filtering_stem: str | None = None,
+        extra_links: list[tuple[Link, Joint]] | None = None,
     ):
         """Generate a robot class from a URDF file.
 
@@ -128,6 +129,10 @@ class Robot:
             robot_id (str | None, optional): Override `self.name`. Defaults to `name` with `_description` stripped.
             collision_filtering_stem (str | None, optional): Stem of the collision-filtering YAML. Defaults to the
                                                               description name with `_description` stripped.
+            extra_links (list[tuple[Link, Joint]] | None, optional): Additional (link, joint) pairs to attach to the
+                                                                     loaded description, e.g. a wrist mounted camera.
+                                                                     Each joint's child must be its paired link. Only
+                                                                     valid when loading from robot_descriptions.
         """
         if yourdfpy_robot is None:
             assert "_description" in name, f"Name {name} should contain _description"
@@ -153,11 +158,31 @@ class Robot:
                     isinstance(collision_filtering_stem, str) and len(collision_filtering_stem) > 0
                 ), f"collision_filtering_stem must be a non-empty str, got {collision_filtering_stem!r}"
                 yaml_stem = collision_filtering_stem
-            self._yourdfpy_model: YourdfpyURDF = load_robot_description(
-                name, build_collision_scene_graph=True, xacro_args=xacro_args
-            )
-            self._urdfpy_robot: YourdfpyRobot = self._yourdfpy_model.robot
             module = import_module(f"robot_descriptions.{name}")
+            if extra_links is None:
+                self._yourdfpy_model: YourdfpyURDF = load_robot_description(
+                    name, build_collision_scene_graph=True, xacro_args=xacro_args
+                )
+            else:
+                # Parse the description without building any scene graphs, attach the extra links, then build the
+                # scene graphs once on the augmented robot.
+                base_robot: YourdfpyRobot = load_robot_description(
+                    name, build_scene_graph=False, load_meshes=False, xacro_args=xacro_args
+                ).robot
+                for link, joint in extra_links:
+                    existing_link_names = {link_.name for link_ in base_robot.links}
+                    assert link.name not in existing_link_names, f"Link {link.name} already exists in {name}"
+                    assert joint.name not in {
+                        joint_.name for joint_ in base_robot.joints
+                    }, f"Joint {joint.name} already exists in {name}"
+                    assert joint.child == link.name, f"Joint {joint.name} child {joint.child} != link {link.name}"
+                    assert joint.parent in existing_link_names, f"Joint {joint.name} parent {joint.parent} not found"
+                    base_robot.links.append(link)
+                    base_robot.joints.append(joint)
+                self._yourdfpy_model = YourdfpyURDF(
+                    robot=base_robot, build_collision_scene_graph=True, mesh_dir=module.PACKAGE_PATH
+                )
+            self._urdfpy_robot: YourdfpyRobot = self._yourdfpy_model.robot
             # Example:
             # self._urdf_filepath='~/.cache/robot_descriptions/example-robot-data/robots/panda_description/urdf/panda.urdf'
             # self._robot_description_dir='~/.cache/robot_descriptions/example-robot-data/robots/panda_description'
@@ -206,6 +231,7 @@ class Robot:
                     self._collision_filtering_data[f"{c_or_v}-never"].extend(additional_ignored_geoms[c_or_v]["never"])
 
         else:
+            assert extra_links is None, "extra_links is only supported when loading from robot_descriptions"
             self._name = name.replace("_description", "")
             self._urdfpy_robot = yourdfpy_robot
             self._yourdfpy_model = YourdfpyURDF(robot=yourdfpy_robot, build_collision_scene_graph=True)
@@ -263,6 +289,8 @@ class Robot:
                     force="mesh",
                     skip_materials=True,
                 )
+                if geom.mesh.scale is not None:
+                    geometry.apply_scale(geom.mesh.scale)
                 name = f"{link.name}::{Path(geom.mesh.filename).name}"
             elif geom.box is not None:
                 box_count += 1

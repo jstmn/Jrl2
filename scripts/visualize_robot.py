@@ -9,6 +9,7 @@ from jrl2.visualization import visualize_scene
 
 """
 uv run scripts/visualize_robot.py --robot panda --use_visual
+uv run scripts/visualize_robot.py --robot panda_zed_wrist_cam__panda_gripper --use_visual
 uv run scripts/visualize_robot.py --robot panda --use_collision
 uv run scripts/visualize_robot.py --robot panda --use_collision --h5_filepath '~/Projects/mpcm2/data/08-18_20:02:30__push-T, 2 (Aug 18)/data.h5'
 """

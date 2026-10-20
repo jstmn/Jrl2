@@ -15,6 +15,7 @@ of the actual robot.
 
 # Example usage:
 uv run scripts/generate_filtering_data.py --robot xarm7 --n 10000
+uv run scripts/generate_filtering_data.py --robot panda_zed_wrist_cam__panda_gripper --n 50000
 """
 
 import argparse
