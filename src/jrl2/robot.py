@@ -191,6 +191,11 @@ class Robot:
             self._robot_description_dir = Path(module.PACKAGE_PATH)
             self._repository_path = Path(module.REPOSITORY_PATH)
             assert self._urdf_filepath.exists(), f"URDF file {self._urdf_filepath} does not exist"
+            if extra_links is not None:
+                # The description's URDF lacks the extra links. Write the augmented model next to it so that
+                # `_urdf_filepath` matches this robot, and relative / package:// mesh paths still resolve.
+                self._urdf_filepath = self._urdf_filepath.with_name(f"{self._urdf_filepath.stem}__{self._name}.urdf")
+                self._yourdfpy_model.write_xml_file(str(self._urdf_filepath))
             assert (
                 self._robot_description_dir.exists()
             ), f"Robot description directory {self._robot_description_dir} does not exist"
